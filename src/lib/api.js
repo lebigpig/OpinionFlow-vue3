@@ -223,24 +223,77 @@ export async function runAllScriptsStream({ code, onEvent } = {}) {
   }
 }
 
-export function saveAiAnswer({ filename, content }) {
-  return request('/api/ai-answer/save', {
+// ── 记忆化对话 (MySQL + Redis 永久化) ──
+
+/**
+ * 获取所有 session 的摘要列表（前端 AI 分析菜单打开时调用）
+ */
+export function listChatSessions() {
+  return request('/api/chat-memory/sessions')
+}
+
+/**
+ * 创建新会话（runAiCustom 对应），返回 { sessionId }
+ */
+export function createNewSession() {
+  return request('/api/chat-memory/new-session', { method: 'POST' })
+}
+
+export async function chatMemoryStream(content, { sessionId, systemPrompt, selectedContent, onDelta } = {}) {
+  const resp = await fetch('/api/chat-memory/chat', {
     method: 'POST',
-    body: JSON.stringify({ filename, content }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    },
+    body: JSON.stringify({ sessionId: sessionId || 'default', content, systemPrompt, selectedContent }),
   })
-}
 
-export function listAiAnswers() {
-  return request('/api/ai-answer/list')
-}
-
-export async function readAiAnswer(filename) {
-  const resp = await fetch(`/api/ai-answer/read/${encodeURIComponent(filename)}`, {
-    headers: { 'Accept': 'text/plain' },
-  })
   if (!resp.ok) {
     const text = await resp.text()
     throw new Error(text || `HTTP ${resp.status}`)
   }
-  return await resp.text()
+  if (!resp.body) {
+    throw new Error('浏览器不支持流式响应')
+  }
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buf = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+
+    const parts = buf.split('\n\n')
+    buf = parts.pop() || ''
+    for (const block of parts) {
+      const lines = block.split('\n')
+      let eventName = 'message'
+      const dataLines = []
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+      }
+      const data = dataLines.join('\n')
+      if (eventName === 'delta' && data) {
+        // 反转义后端转义的特殊字符
+        const decoded = data.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\\\/g, '\\')
+        onDelta?.(decoded)
+      }
+    }
+  }
 }
+
+export function chatMemoryHistory(sessionId = 'default') {
+  return request(`/api/chat-memory/history?sessionId=${encodeURIComponent(sessionId)}`)
+}
+
+export function chatMemoryClear(sessionId = 'default') {
+  return request('/api/chat-memory/clear', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  })
+}
+
