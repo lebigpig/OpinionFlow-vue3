@@ -223,6 +223,16 @@ export async function runAllScriptsStream({ code, onEvent } = {}) {
   }
 }
 
+// ── Echart 历史文件 (public/echart/) ──
+
+export function listEchartFiles() {
+  return request('/api/echart/list')
+}
+
+export function readEchartFile(filename) {
+  return request(`/api/echart/read/${encodeURIComponent(filename)}`)
+}
+
 // ── 记忆化对话 (MySQL + Redis 永久化) ──
 
 /**
@@ -294,6 +304,15 @@ export function chatMemoryClear(sessionId = 'default') {
   return request('/api/chat-memory/clear', {
     method: 'POST',
     body: JSON.stringify({ sessionId }),
+  })
+}
+
+/**
+ * 删除指定 session 的所有对话记录（从 MySQL chat_history 表中永久删除）
+ */
+export function deleteChatSession(sessionId) {
+  return request(`/api/chat-memory/session/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
   })
 }
 

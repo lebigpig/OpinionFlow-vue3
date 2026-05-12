@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listStockComments, getStockCommentDetail, listYahooFinanceNews, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listStockComments, getStockCommentDetail, listYahooFinanceNews, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile } from './lib/api'
 
 function htmlToPlainText(input) {
   const s = String(input ?? '')
@@ -286,29 +286,33 @@ const selectedCounts = computed(() => {
   return bySource
 })
 
-const echartHistory = computed(() => {
-  // Vite 会在构建时把匹配到的 json 打包进来，线上也可用
-  const modules = import.meta.glob('./echart/*.json', { eager: true, as: 'raw' })
-  const list = Object.entries(modules).map(([path, raw]) => {
-    const filename = path.split('/').pop() || path
-    return { path, filename, raw: String(raw ?? '') }
-  })
-  // 按文件名倒序（文件名里带时间戳）
-  list.sort((a, b) => b.filename.localeCompare(a.filename))
-  return list
-})
+const echartHistory = ref([])
+const echartHistoryLoading = ref(false)
+
+async function loadEchartHistory() {
+  echartHistoryLoading.value = true
+  try {
+    const list = await listEchartFiles()
+    echartHistory.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    console.error('加载 echart 历史列表失败', e)
+  } finally {
+    echartHistoryLoading.value = false
+  }
+}
 
 const historyError = ref('')
 
-function loadIndustryFromHistory(item) {
+async function loadIndustryFromHistory(item) {
   historyError.value = ''
   try {
-    const jsonText = String(item?.raw ?? '').trim()
+    const resp = await readEchartFile(item.filename)
+    const jsonText = String(resp?.content ?? '').trim()
     if (!jsonText) throw new Error('文件内容为空')
     const parsed = JSON.parse(jsonText)
     industryAiRaw.value = jsonText
     industryChartData.value = parsed
-    industrySavedPath.value = `src/echart/${item.filename}`
+    industrySavedPath.value = `/echart/${item.filename}`
     requestAnimationFrame(() => rebuildIndustryCharts())
   } catch (e) {
     historyError.value = `加载失败：${e?.message || String(e)}`
@@ -519,8 +523,9 @@ const aiChatError = ref('')
 const aiChatLoading = ref(false)
 const aiChatContainer = ref(null)
 
-async function loadAiCustomHistory() {
-  aiCustomHistoryLoading.value = true
+async function loadAiCustomHistory(silent = false) {
+  // silent=true 时不显示 loading 状态，避免替换正在显示的聊天内容
+  if (!silent) aiCustomHistoryLoading.value = true
   try {
     // 从 MySQL chat_history 表查询所有会话列表
     const sessions = await listChatSessions()
@@ -528,7 +533,25 @@ async function loadAiCustomHistory() {
   } catch (e) {
     console.error('加载 AI 会话历史失败', e)
   } finally {
-    aiCustomHistoryLoading.value = false
+    if (!silent) aiCustomHistoryLoading.value = false
+  }
+}
+
+async function deleteCustomHistory(item) {
+  const sessionId = item.sessionId
+  if (!sessionId) return
+  if (!confirm(`确定要删除该历史回答吗？此操作不可恢复。`)) return
+  try {
+    await deleteChatSession(sessionId)
+    aiCustomHistory.value = aiCustomHistory.value.filter(h => h.sessionId !== sessionId)
+    if (selectedAiCustomItem.value && selectedAiCustomItem.value.sessionId === sessionId) {
+      selectedAiCustomItem.value = null
+      aiChatMessages.value = []
+      currentAiChatSessionId.value = ''
+    }
+  } catch (e) {
+    console.error('删除会话失败', e)
+    alert(`删除失败：${e.message}`)
   }
 }
 
@@ -670,25 +693,33 @@ async function sendAiChatMessage() {
   aiChatError.value = ''
   aiChatSending.value = true
 
-  try {
-    aiChatMessages.value.push({ role: 'user', content: msg })
+  // 先在本地推入用户消息和空的 assistant 占位
+  aiChatMessages.value.push({ role: 'user', content: msg })
+  const assistantIdx = aiChatMessages.value.length
+  aiChatMessages.value.push({ role: 'assistant', content: '' })
 
+  try {
     let reply = ''
-    // 使用当前 session ID 进行追问（MySQL 中已有该 session 的完整对话历史）
     const chatSessionId = currentAiChatSessionId.value || 'ai_custom'
     await chatMemoryStream(msg, {
       sessionId: chatSessionId,
       selectedContent: aiCustomSelectedContent.value || undefined,
       onDelta: (delta) => {
         reply += delta
+        // 实时更新 assistant 消息内容（直接修改数组中的占位消息）
+        aiChatMessages.value[assistantIdx].content = reply
+        // 自动滚动到底部
+        nextTick(() => {
+          if (aiChatContainer.value) {
+            aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
+          }
+        })
       },
     })
 
-    aiChatMessages.value.push({ role: 'assistant', content: reply })
-
     // 对话内容已自动保存到 MySQL chat_history 表
-    // 刷新历史会话列表
-    await loadAiCustomHistory()
+    // 静默刷新历史会话列表（不 await，不显示 loading，不阻塞 UI）
+    loadAiCustomHistory(true).catch(() => {})
   } catch (e) {
     aiChatError.value = e?.message || String(e)
   } finally {
@@ -861,6 +892,9 @@ async function runIndustryAnalysis() {
     const filename = industryFilenamePreview.value
     const saveResp = await saveEchartJson({ filename, jsonText })
     industrySavedPath.value = saveResp?.savedPath || ''
+
+    // 保存后刷新 echart 历史列表
+    loadEchartHistory().catch(() => {})
   } catch (e) {
     industryError.value = e?.message || String(e)
   } finally {
@@ -1325,7 +1359,10 @@ watch(activeMenu, () => {
     loadAiCustomHistory()
     return
   }
-  if (!scriptKeyFromMenu()) {
+  if (activeMenu.value === 'industry') {
+    // 切到词云分析时刷新 echart 历史列表
+    loadEchartHistory()
+  } else if (!scriptKeyFromMenu()) {
     loadList()
   } else {
     // 切到脚本菜单只清理状态，不执行
@@ -1339,8 +1376,9 @@ watch(activeMenu, () => {
 
 onMounted(() => {
   loadList()
+  loadEchartHistory()
 
-  // 给“词云分析”的保存文件名一个默认值（后端也能接受的安全字符集）
+  // 给"词云分析"的保存文件名一个默认值（后端也能接受的安全字符集）
   const now = new Date()
   const pad = (n) => String(n).padStart(2, '0')
   industryFilenameInput.value = `echart-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`
@@ -1534,17 +1572,21 @@ onMounted(() => {
           </div>
 
           <!-- AI分析 菜单：微信风格聊天界面 -->
+          <!--
+            关键修复：不再用 v-if/v-else 互斥切换 loading 和聊天内容。
+            v-if/v-else 会导致 Vue 销毁和重建 DOM，浏览器布局引擎在高度骤变时会重置滚动位置到顶部。
+            改为：loading 时用覆盖层浮在聊天内容上方，聊天 DOM 始终存在，不会被销毁。
+          -->
           <div v-if="activeMenu === 'ai_custom'" class="chatPanel">
-            <div v-if="aiCustomHistoryLoading" class="loadingState">
-              <div class="spinner"></div>
-              <div class="muted">正在加载历史回答...</div>
-            </div>
-            <div v-else-if="!selectedAiCustomItem && aiCustomHistory.length === 0" class="emptyState">暂无历史回答</div>
-            <div v-else-if="!selectedAiCustomItem" class="emptyState">请在右侧点击历史会话查看对话内容</div>
-            <template v-else>
+            <!-- 首次加载（还没有选中历史项）时显示提示 -->
+            <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
+            <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
+
+            <!-- 聊天面板：始终渲染，loading 时用覆盖层遮挡，避免 DOM 销毁重建 -->
+            <div v-show="selectedAiCustomItem" class="chatPanelInner">
               <div class="chatPanelHeader">
-                <div class="chatPanelTitle">{{ selectedAiCustomItem.preview || selectedAiCustomItem.sessionId }}</div>
-                <button class="btn sm" type="button" @click="loadAiCustomHistory" :disabled="aiCustomHistoryLoading">
+                <div class="chatPanelTitle">{{ selectedAiCustomItem?.preview || selectedAiCustomItem?.sessionId }}</div>
+                <button class="btn sm" type="button" @click="loadAiCustomHistory(true)" :disabled="aiCustomHistoryLoading">
                   {{ aiCustomHistoryLoading ? '加载中...' : '刷新列表' }}
                 </button>
               </div>
@@ -1576,7 +1618,29 @@ onMounted(() => {
                   </template>
                 </div>
               </div>
-            </template>
+              <!-- 追问输入框（中栏底部） -->
+              <div class="aiChatInputBox">
+                <el-input
+                  v-model="aiChatInput"
+                  type="textarea"
+                  :rows="2"
+                  placeholder="输入追问内容，AI 会基于之前的记忆回答..."
+                  clearable
+                  @keyup.ctrl.enter="sendAiChatMessage"
+                />
+                <div class="actionGroup" style="margin:8px 0 0;">
+                  <button class="btn primary" type="button" @click="sendAiChatMessage" :disabled="aiChatSending || !aiChatInput.trim()">
+                    {{ aiChatSending ? '发送中...' : '追问 AI' }}
+                  </button>
+                  <span class="muted" style="font-size:12px;">Ctrl+Enter 发送</span>
+                </div>
+              </div>
+              <!-- loading 覆盖层：浮在聊天内容上方，不销毁底层 DOM -->
+              <div v-if="aiCustomHistoryLoading" class="chatLoadingOverlay">
+                <div class="spinner"></div>
+                <div class="muted">正在刷新会话列表...</div>
+              </div>
+            </div>
           </div>
 
           <!-- 其他菜单：正常列表 -->
@@ -1691,7 +1755,7 @@ onMounted(() => {
             </div>
 
             <div class="historyBox" v-if="echartHistory.length">
-              <div class="chartTitle">历史加载（src/echart）</div>
+              <div class="chartTitle">历史加载（public/echart）</div>
               <div class="muted" style="margin-bottom: 10px;">
                 点击文件名即可加载对应的 JSON 并重建图表（不会触发 AI 请求）。
               </div>
@@ -1773,36 +1837,6 @@ onMounted(() => {
 
             <div v-if="aiCustomError" class="errorState">{{ aiCustomError }}</div>
 
-            <!-- 记忆化多轮对话 -->
-            <div v-if="aiChatMessages.length" class="historyBox">
-              <div class="chartTitle">记忆化对话（MySQL + Redis）</div>
-              <div class="aiChatBox">
-                <div v-for="(msg, i) in aiChatMessages" :key="i" class="chatMsg" :class="msg.role">
-                  <div class="chatRole">{{ msg.role === 'user' ? '👤 用户' : '🤖 AI' }}</div>
-                  <pre class="pre chatContent">{{ msg.content }}</pre>
-                </div>
-              </div>
-              <div v-if="aiChatError" class="errorState" style="padding:8px 0;">{{ aiChatError }}</div>
-            </div>
-
-            <!-- 追问输入框 -->
-            <div class="aiChatInputBox">
-              <el-input
-                v-model="aiChatInput"
-                type="textarea"
-                :rows="2"
-                placeholder="输入追问内容，AI 会基于之前的记忆回答..."
-                clearable
-                @keyup.ctrl.enter="sendAiChatMessage"
-              />
-              <div class="actionGroup" style="margin:8px 0 0;">
-                <button class="btn primary" type="button" @click="sendAiChatMessage" :disabled="aiChatSending || !aiChatInput.trim()">
-                  {{ aiChatSending ? '发送中...' : '追问 AI' }}
-                </button>
-                <span class="muted" style="font-size:12px;">Ctrl+Enter 发送</span>
-              </div>
-            </div>
-
             <div v-if="aiCustomHistory.length" class="historyBox">
               <div class="chartTitle">历史回答（MySQL chat_history）</div>
               <div class="historyList">
@@ -1817,7 +1851,10 @@ onMounted(() => {
                     <span class="mono">{{ h.preview || h.sessionId }}</span>
                     <span class="muted" style="font-size:11px;">{{ h.messageCount }} 条消息</span>
                   </div>
-                  <span class="muted">加载</span>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <span class="muted">加载</span>
+                    <button class="btn-delete-item" @click.stop="deleteCustomHistory(h)" title="删除该会话">✕</button>
+                  </div>
                 </button>
               </div>
             </div>
@@ -2410,6 +2447,30 @@ onMounted(() => {
   max-width: 260px;
 }
 
+/* 聊天面板内部容器（v-show 保持 DOM 存在） */
+.chatPanelInner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+}
+
+/* loading 覆盖层：绝对定位浮在聊天内容上方，不销毁底层 DOM */
+.chatLoadingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 12px;
+}
+
 /* 微信风格消息容器 */
 .wechatChatContainer {
   flex: 1;
@@ -2485,5 +2546,27 @@ onMounted(() => {
 .wechatBubbleContent {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 删除按钮 */
+.btn-delete-item {
+  background: transparent;
+  border: 1px solid #e74c3c;
+  color: #e74c3c;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.btn-delete-item:hover {
+  background: #e74c3c;
+  color: #fff;
 }
 </style>
