@@ -1,27 +1,21 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listStockComments, getStockCommentDetail, listYahooFinanceNews, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listStockComments, getStockCommentDetail, listYahooFinanceNews, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
 
 function htmlToPlainText(input) {
   const s = String(input ?? '')
   if (!s) return ''
-  // 快速判断：没出现标签特征就直接返回
   if (!/[<>]/.test(s)) return s
-
-  // 将常见换行标签先转换成 \n，避免被直接吞掉
   const withNewlines = s
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
     .replace(/<\s*\/p\s*>/gi, '\n')
     .replace(/<\s*p(\s+[^>]*)?>/gi, '')
     .replace(/<\s*\/div\s*>/gi, '\n')
     .replace(/<\s*div(\s+[^>]*)?>/gi, '')
-
-  // 用 DOM 解码实体并剥离标签
   const el = document.createElement('div')
   el.innerHTML = withNewlines
   const text = (el.textContent || el.innerText || '').replace(/\u00a0/g, ' ')
-  // 归一化空行
   return text
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -78,19 +72,16 @@ const loadingList = ref(false)
 const listError = ref('')
 const items = ref([])
 const total = ref(0)
-const page = ref(1) // Element Plus: 1-based
+const page = ref(1)
 const pageSize = ref(50)
-const timeRange = ref(null) // [start, end] as string (yyyy-MM-dd HH:mm:ss)
+const timeRange = ref(null)
 const keyword = ref('')
 const financeAllSelectLoading = ref(false)
 const financeAllSelectError = ref('')
 
-// 仅 general/finance 支持勾选；跨分页、跨菜单保留
-const selectedMap = ref({}) // key: `${source}:${id}` -> true
-// yahoo 选中项需要保存完整数据（跨菜单/分页也能用于词云分析拼包）
-const yahooSelectedData = ref({}) // id(string) -> { title, displayTime, summary }
-// nytimes 选中项：样式/交互与 yahoo 一致（预留后续分析拼包）
-const nytimesSelectedData = ref({}) // id(string) -> { title, displayTime, summary }
+const selectedMap = ref({})
+const yahooSelectedData = ref({})
+const nytimesSelectedData = ref({})
 const industryLoading = ref(false)
 const industryError = ref('')
 const industryAiRaw = ref('')
@@ -106,10 +97,8 @@ const industryFilenamePreview = computed(() => {
 const industryFilenameValid = computed(() => {
   const name = industryFilenamePreview.value
   if (!name) return false
-  // Windows 禁用字符： < > : " / \ | ? *   以及控制字符；也不允许以空格/点结尾
   if (/[<>:"/\\|?*\x00-\x1F]/.test(name)) return false
   if (/[. ]$/.test(name)) return false
-  // 简单长度限制，避免过长路径问题
   if (name.length > 120) return false
   return true
 })
@@ -120,9 +109,8 @@ const moodChartEl = ref(null)
 let moodChartInstance = null
 let moodDom = null
 
-// 词云分析：图表放大预览 + 下载
 const chartPreviewOpen = ref(false)
-const chartPreviewTarget = ref('industry') // 'industry' | 'mood'
+const chartPreviewTarget = ref('industry')
 const chartPreviewEl = ref(null)
 let chartPreviewInst = null
 
@@ -142,10 +130,9 @@ const aiLoading = ref(false)
 const aiError = ref('')
 const aiResult = ref('')
 
-// 脚本运行
 const scriptRunning = ref(false)
 const scriptError = ref('')
-const scriptResult = ref(null) // { ok, key, exitCode, durationMs, stdout, stderr, message }
+const scriptResult = ref(null)
 const scriptStockCodeInput = ref('')
 const scriptStdoutLive = ref('')
 const scriptStderrLive = ref('')
@@ -258,7 +245,6 @@ watch(isDark, (val) => {
     html.classList.remove('dark')
     localStorage.setItem('theme', 'light')
   }
-  // Re-render all charts when theme changes
   if (industryChartData.value) {
     rebuildIndustryCharts()
   }
@@ -288,6 +274,20 @@ const selectedCounts = computed(() => {
 
 const echartHistory = ref([])
 const echartHistoryLoading = ref(false)
+const echartHistoryPage = ref(1)
+const echartHistoryPageSize = ref(10)
+
+const echartHistoryPaginated = computed(() => {
+  const sorted = [...echartHistory.value].sort((a, b) => {
+    const dateA = new Date(a.createdAt || 0).getTime()
+    const dateB = new Date(b.createdAt || 0).getTime()
+    return dateB - dateA
+  })
+  const start = (echartHistoryPage.value - 1) * echartHistoryPageSize.value
+  return sorted.slice(start, start + echartHistoryPageSize.value)
+})
+
+const echartHistoryTotal = computed(() => echartHistory.value.length)
 
 async function loadEchartHistory() {
   echartHistoryLoading.value = true
@@ -306,13 +306,19 @@ const historyError = ref('')
 async function loadIndustryFromHistory(item) {
   historyError.value = ''
   try {
-    const resp = await readEchartFile(item.filename)
-    const jsonText = String(resp?.content ?? '').trim()
-    if (!jsonText) throw new Error('文件内容为空')
-    const parsed = JSON.parse(jsonText)
-    industryAiRaw.value = jsonText
+    const resp = await getEchartDetail(item.id)
+    let content = resp?.content
+    if (!content) throw new Error('文件内容为空')
+    // content is already a parsed object from backend, but handle string case too
+    let parsed
+    if (typeof content === 'string') {
+      parsed = JSON.parse(content)
+    } else {
+      parsed = content
+    }
+    industryAiRaw.value = JSON.stringify(parsed, null, 2)
     industryChartData.value = parsed
-    industrySavedPath.value = `/echart/${item.filename}`
+    industrySavedPath.value = `/echart/${item.filename || item.id}`
     requestAnimationFrame(() => rebuildIndustryCharts())
   } catch (e) {
     historyError.value = `加载失败：${e?.message || String(e)}`
@@ -329,9 +335,7 @@ const industryReasonText = computed(() => {
 })
 
 async function loadList() {
-  // 脚本运行菜单：不自动执行（仅手动点按钮触发）
   if (scriptKeyFromMenu()) return
-  // AI分析菜单：不加载列表数据
   if (activeMenu.value === 'ai_custom') return
 
   loadingList.value = true
@@ -363,16 +367,20 @@ async function loadList() {
             ? await listFinance(p0, size, { start, end, q })
             : await listGeneral(p0, size, { start, end, q })
 
-    const content = resp?.content || []
+    const rows = resp?.content || resp?.list || []
     items.value = activeMenu.value === 'comments'
-      ? content.map(r => ({
+      ? rows.map(r => ({
         id: r.id,
         title: r.stockCode,
         publishTime: r.analysisTime,
-        commentTotal: r.total_comments_analyzed,
+        commentTotal: r.totalCommentsAnalyzed,
       }))
-      : content
-    total.value = resp?.totalElements || 0
+      : rows.map(r => ({
+        ...r,
+        publishTime: r.publishTime || r.time || '',
+        summary: activeMenu.value === 'finance' ? (r.summary || r.content || '') : r.summary,
+      }))
+    total.value = resp?.totalElements || resp?.total || 0
   } catch (e) {
     listError.value = e?.message || String(e)
   } finally {
@@ -455,7 +463,6 @@ const pageAllSelected = computed(() => {
 function toggleSelectAllOnPage(checked) {
   if (!isSelectableMenu()) return
   const source = currentSource.value
-  // yahoo 需要同时维护 yahooSelectedData，否则“词云分析”拼包会拿不到内容
   if (source === 'yahoo') {
     for (const it of items.value) {
       toggleYahooSelected(it, checked)
@@ -486,7 +493,6 @@ async function selectAllFinanceResults() {
     const start = timeRange.value?.[0] || ''
     const end = timeRange.value?.[1] || ''
     const q = keyword.value?.trim() || ''
-    // 后端默认最多拉 5000；这里按 total 请求，仍会被后端上限 20000 保护
     const resp = await listFinanceIds({ start, end, q, limit: total.value || 5000 })
     const ids = resp?.ids || []
     const truncated = !!resp?.truncated
@@ -505,18 +511,17 @@ async function selectAllFinanceResults() {
   }
 }
 
-// AI分析（自定义 prompt + 选中内容）
 const aiCustomPrompt = ref('')
 const aiCustomLoading = ref(false)
 const aiCustomError = ref('')
 const aiCustomResult = ref('')
 const aiCustomSavedPath = ref('')
-const currentAiChatSessionId = ref('ai_custom') // 当前对话的 sessionId
-const aiCustomHistory = ref([]) // { sessionId, preview, messageCount, lastUpdated }
+const currentAiChatSessionId = ref('ai_custom')
+const aiCustomHistory = ref([])
 const aiCustomHistoryLoading = ref(false)
 const aiCustomSelectedContent = ref('')
-const selectedAiCustomItem = ref(null) // 当前选中的历史会话项
-const aiChatMessages = ref([]) // { role: 'user'|'assistant', content: string }
+const selectedAiCustomItem = ref(null)
+const aiChatMessages = ref([])
 const aiChatInput = ref('')
 const aiChatSending = ref(false)
 const aiChatError = ref('')
@@ -524,10 +529,8 @@ const aiChatLoading = ref(false)
 const aiChatContainer = ref(null)
 
 async function loadAiCustomHistory(silent = false) {
-  // silent=true 时不显示 loading 状态，避免替换正在显示的聊天内容
   if (!silent) aiCustomHistoryLoading.value = true
   try {
-    // 从 MySQL chat_history 表查询所有会话列表
     const sessions = await listChatSessions()
     aiCustomHistory.value = Array.isArray(sessions) ? sessions : []
   } catch (e) {
@@ -568,7 +571,6 @@ async function runAiCustom() {
       throw new Error('请先在新闻列表中勾选条目（可用本页全选）')
     }
 
-    // 拼装选中内容（与词云分析完全一致）
     const articles = []
     for (const k of keys) {
       const [source, idStr] = k.split(':')
@@ -628,18 +630,15 @@ async function runAiCustom() {
 
     aiCustomSelectedContent.value = userContent
 
-    // 用户自定义 prompt + 选中内容
     const prompt = (aiCustomPrompt.value || '').trim()
     const fullContent = prompt
       ? `${prompt}\n\n---\n以下是选中的新闻内容：\n\n${userContent}`
       : userContent
 
-    // 创建新的对话 session（MySQL 永久存储）
     const sessionResp = await createNewSession()
     const newSessionId = sessionResp?.sessionId || 'default'
     currentAiChatSessionId.value = newSessionId
 
-    // 使用记忆化对话（对话内容存储到 MySQL，Redis 缓存 20min）
     await chatMemoryStream(fullContent, {
       sessionId: newSessionId,
       selectedContent: aiCustomSelectedContent.value || undefined,
@@ -648,9 +647,6 @@ async function runAiCustom() {
       },
     })
 
-    // 对话内容已自动保存到 MySQL chat_history 表
-
-    // 刷新历史列表
     await loadAiCustomHistory()
   } catch (e) {
     aiCustomError.value = e?.message || String(e)
@@ -664,17 +660,14 @@ async function loadAiCustomHistoryItem(item) {
   aiChatMessages.value = []
   try {
     selectedAiCustomItem.value = item
-    // 从 MySQL chat_history 表加载该会话的完整对话历史
     const resp = await chatMemoryHistory(item.sessionId)
     const messages = resp?.messages || []
     aiChatMessages.value = messages
-    // 将最后一条助手消息作为 aiCustomResult 展示
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
     aiCustomResult.value = lastAssistant?.content || ''
     aiCustomSavedPath.value = ''
     currentAiChatSessionId.value = item.sessionId
     aiCustomError.value = ''
-    // 滚动到底部
     await nextTick()
     if (aiChatContainer.value) {
       aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
@@ -693,7 +686,6 @@ async function sendAiChatMessage() {
   aiChatError.value = ''
   aiChatSending.value = true
 
-  // 先在本地推入用户消息和空的 assistant 占位
   aiChatMessages.value.push({ role: 'user', content: msg })
   const assistantIdx = aiChatMessages.value.length
   aiChatMessages.value.push({ role: 'assistant', content: '' })
@@ -706,9 +698,7 @@ async function sendAiChatMessage() {
       selectedContent: aiCustomSelectedContent.value || undefined,
       onDelta: (delta) => {
         reply += delta
-        // 实时更新 assistant 消息内容（直接修改数组中的占位消息）
         aiChatMessages.value[assistantIdx].content = reply
-        // 自动滚动到底部
         nextTick(() => {
           if (aiChatContainer.value) {
             aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
@@ -717,8 +707,6 @@ async function sendAiChatMessage() {
       },
     })
 
-    // 对话内容已自动保存到 MySQL chat_history 表
-    // 静默刷新历史会话列表（不 await，不显示 loading，不阻塞 UI）
     loadAiCustomHistory(true).catch(() => {})
   } catch (e) {
     aiChatError.value = e?.message || String(e)
@@ -750,7 +738,7 @@ async function runYahooAi() {
   try {
     const keys = Object.keys(selectedMap.value).filter(k => k.startsWith('yahoo:'))
     if (keys.length === 0) {
-      throw new Error('请先在“雅虎新闻”列表中勾选新闻（可用本页全选）')
+      throw new Error('请先在"雅虎新闻"列表中勾选新闻（可用本页全选）')
     }
 
     const selected = keys
@@ -767,7 +755,6 @@ async function runYahooAi() {
 
     if (!payload.trim()) throw new Error('所选条目内容为空')
 
-    // 保护：避免后端判定 content 为空而 400
     const safePayload = String(payload || '').trim()
     await aiParseStream(safePayload, {
       onDelta: (delta) => {
@@ -792,10 +779,9 @@ async function runIndustryAnalysis() {
   try {
     const keys = Object.keys(selectedMap.value)
     if (keys.length === 0) {
-      throw new Error('请先在“网易新闻列表/实时财经新闻”里勾选新闻（可用本页全选）')
+      throw new Error('请先在"网易新闻列表/实时财经新闻"里勾选新闻（可用本页全选）')
     }
 
-    // 拉取详情（general/finance 用详情接口；yahoo/nytimes 直接用已选中的 title+displayTime+summary）
     const articles = []
     for (const k of keys) {
       const [source, idStr] = k.split(':')
@@ -806,7 +792,6 @@ async function runIndustryAnalysis() {
         const title = (y.title || '').trim()
         const displayTime = (y.displayTime || '').trim()
         const summary = (y.summary || '').trim()
-        // 只发 title + publishTime(displayTime) + summary
         const content = [
           `publishTime：${displayTime}`,
           `summary：`,
@@ -885,7 +870,6 @@ async function runIndustryAnalysis() {
     const parsed = JSON.parse(jsonText)
     industryChartData.value = parsed
 
-    // 成功后保存到前端工程目录 opinionflow-vue/src/echart 下（由后端落盘）
     if (!industryFilenameValid.value) {
       throw new Error('请先输入合法的保存文件名（不能包含 \\ / : * ? \" < > |，并以 .json 结尾）')
     }
@@ -893,7 +877,6 @@ async function runIndustryAnalysis() {
     const saveResp = await saveEchartJson({ filename, jsonText })
     industrySavedPath.value = saveResp?.savedPath || ''
 
-    // 保存后刷新 echart 历史列表
     loadEchartHistory().catch(() => {})
   } catch (e) {
     industryError.value = e?.message || String(e)
@@ -951,8 +934,20 @@ function renderMoodChart() {
 
   const d = industryChartData.value
   const mood = Array.isArray(d.mood) ? d.mood : []
-  const optimistic = Number(mood?.[0] ?? 0)
-  const pessimistic = Number(mood?.[1] ?? 0)
+  // mood array is pairs of [optimistic1, pessimistic1, optimistic2, pessimistic2, ...]
+  // Sum all even indices for optimistic, all odd indices for pessimistic
+  let optimisticSum = 0
+  let pessimisticSum = 0
+  for (let i = 0; i < mood.length; i++) {
+    const val = Number(mood[i]) || 0
+    if (i % 2 === 0) {
+      optimisticSum += val
+    } else {
+      pessimisticSum += val
+    }
+  }
+  const optimistic = optimisticSum || 50
+  const pessimistic = pessimisticSum || 50
 
   moodChartInstance.clear()
   moodChartInstance.setOption({
@@ -978,7 +973,6 @@ function renderMoodChart() {
 }
 
 function getIndustryChartOption() {
-  // 尽量从当前实例拿（包含 label/legend 的最终状态），没有就返回 null
   try {
     return chartInstance?.getOption?.() || null
   } catch {
@@ -1047,7 +1041,6 @@ async function downloadPreview(type) {
     return
   }
 
-  // SVG：用临时 svg renderer 重新渲染导出
   const tmp = document.createElement('div')
   tmp.style.position = 'fixed'
   tmp.style.left = '-99999px'
@@ -1078,7 +1071,6 @@ async function rebuildIndustryCharts() {
   requestAnimationFrame(() => {
     renderIndustryChart()
     renderMoodChart()
-    // 若放大预览打开，同步重绘
     if (chartPreviewOpen.value) {
       const opt = chartPreviewTarget.value === 'mood' ? getMoodChartOption() : getIndustryChartOption()
       if (chartPreviewInst && opt) {
@@ -1092,7 +1084,6 @@ async function rebuildIndustryCharts() {
 
 watch(industryChartData, async () => {
   await nextTick()
-  // nextTick 后再下一帧，避免容器宽高为 0 导致偶发不渲染
   requestAnimationFrame(() => {
     renderIndustryChart()
     renderMoodChart()
@@ -1242,7 +1233,6 @@ function renderStockCommentCharts(d) {
           valueFormatter: (v) => {
             const n = Number(v)
             if (!Number.isFinite(n)) return String(v ?? '')
-            // 0-1 权重显示 3 位小数；若不是权重（旧数组模式）则显示原值
             return (isWeightedObject ? n.toFixed(3) : String(n))
           },
         },
@@ -1287,7 +1277,6 @@ async function openDetail(id) {
         publishTime: x.analysisTime,
         content: lines.join('\n'),
       }
-      // 必须先结束 loading，否则 v-else-if="detail" 整块不渲染，图表 ref 一直为 null
       loadingDetail.value = false
       await nextTick()
       renderStockCommentCharts(detail.value)
@@ -1302,7 +1291,6 @@ async function openDetail(id) {
       ? await getFinanceDetail(id)
       : await getNewsDetail(id)
 
-    // 网易新闻/DeepSeek 区常见 content 带 HTML，转为纯文本展示与 AI 解析
     if (d && (activeMenu.value === 'general' || activeMenu.value === 'deepseek')) {
       d.content = htmlToPlainText(d.content)
     }
@@ -1349,8 +1337,9 @@ async function runAi() {
 
 watch(activeMenu, () => {
   page.value = 1
+  timeRange.value = null
+  keyword.value = ''
   if (activeMenu.value === 'ai_custom') {
-    // 切到 AI分析 菜单时加载历史列表，但左侧不显示内容，等待右侧点击历史项
     aiCustomResult.value = ''
     aiCustomSavedPath.value = ''
     aiCustomError.value = ''
@@ -1360,12 +1349,10 @@ watch(activeMenu, () => {
     return
   }
   if (activeMenu.value === 'industry') {
-    // 切到词云分析时刷新 echart 历史列表
     loadEchartHistory()
   } else if (!scriptKeyFromMenu()) {
     loadList()
   } else {
-    // 切到脚本菜单只清理状态，不执行
     scriptError.value = ''
     scriptResult.value = null
     if (activeMenu.value !== 'script_comments') {
@@ -1378,7 +1365,6 @@ onMounted(() => {
   loadList()
   loadEchartHistory()
 
-  // 给"词云分析"的保存文件名一个默认值（后端也能接受的安全字符集）
   const now = new Date()
   const pad = (n) => String(n).padStart(2, '0')
   industryFilenameInput.value = `echart-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`
@@ -1450,7 +1436,7 @@ onMounted(() => {
         </div>
         <div class="cardBody">
           <div class="muted">
-            这里会调用后端执行你配置的 Python 脚本（仅支持 comments/news/realtime 三个 key）。仅在你手动点击“运行脚本”时执行。
+            这里会调用后端执行你配置的 Python 脚本（仅支持 comments/news/realtime 三个 key）。仅在你手动点击"运行脚本"时执行。
           </div>
 
           <div v-if="activeMenu === 'script_comments'" class="scriptForm">
@@ -1511,7 +1497,7 @@ onMounted(() => {
             <div class="chartTitle" style="margin-top: 14px;">stderr</div>
             <pre class="pre">{{ scriptResult.stderr || '' }}</pre>
           </div>
-          <div v-else-if="!scriptRunning" class="emptyState sm">点击“运行脚本”开始执行</div>
+          <div v-else-if="!scriptRunning" class="emptyState sm">点击"运行脚本"开始执行</div>
         </div>
       </div>
 
@@ -1522,7 +1508,7 @@ onMounted(() => {
           <div class="muted" v-if="total">共 {{ total }} 条</div>
         </div>
         <div class="cardBody">
-          <div class="filterBar" v-show="activeMenu !== 'ai_custom'">
+          <div class="filterBar" v-show="activeMenu !== 'ai_custom' && activeMenu !== 'industry'">
             <div class="filterItem">
               <span class="muted">时间范围</span>
               <el-date-picker
@@ -1572,17 +1558,10 @@ onMounted(() => {
           </div>
 
           <!-- AI分析 菜单：微信风格聊天界面 -->
-          <!--
-            关键修复：不再用 v-if/v-else 互斥切换 loading 和聊天内容。
-            v-if/v-else 会导致 Vue 销毁和重建 DOM，浏览器布局引擎在高度骤变时会重置滚动位置到顶部。
-            改为：loading 时用覆盖层浮在聊天内容上方，聊天 DOM 始终存在，不会被销毁。
-          -->
           <div v-if="activeMenu === 'ai_custom'" class="chatPanel">
-            <!-- 首次加载（还没有选中历史项）时显示提示 -->
             <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
             <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
 
-            <!-- 聊天面板：始终渲染，loading 时用覆盖层遮挡，避免 DOM 销毁重建 -->
             <div v-show="selectedAiCustomItem" class="chatPanelInner">
               <div class="chatPanelHeader">
                 <div class="chatPanelTitle">{{ selectedAiCustomItem?.preview || selectedAiCustomItem?.sessionId }}</div>
@@ -1602,14 +1581,12 @@ onMounted(() => {
                   class="wechatMsgRow"
                   :class="msg.role"
                 >
-                  <!-- AI 消息：头像在左 -->
                   <template v-if="msg.role === 'assistant'">
                     <div class="wechatAvatar assistantAvatar">🤖</div>
                     <div class="wechatBubble assistantBubble">
                       <div class="wechatBubbleContent">{{ msg.content }}</div>
                     </div>
                   </template>
-                  <!-- 用户消息：头像在右 -->
                   <template v-else>
                     <div class="wechatBubble userBubble">
                       <div class="wechatBubbleContent">{{ msg.content }}</div>
@@ -1618,7 +1595,6 @@ onMounted(() => {
                   </template>
                 </div>
               </div>
-              <!-- 追问输入框（中栏底部） -->
               <div class="aiChatInputBox">
                 <el-input
                   v-model="aiChatInput"
@@ -1635,7 +1611,6 @@ onMounted(() => {
                   <span class="muted" style="font-size:12px;">Ctrl+Enter 发送</span>
                 </div>
               </div>
-              <!-- loading 覆盖层：浮在聊天内容上方，不销毁底层 DOM -->
               <div v-if="aiCustomHistoryLoading" class="chatLoadingOverlay">
                 <div class="spinner"></div>
                 <div class="muted">正在刷新会话列表...</div>
@@ -1692,8 +1667,11 @@ onMounted(() => {
                     <template v-if="activeMenu === 'comments'">
                       分析时间为: {{ it.publishTime || '—' }}；总评论数：{{ it.commentTotal ?? '—' }}
                     </template>
+                    <template v-else-if="activeMenu === 'finance'">
+                      <span class="financeSummary">{{ it.summary || '' }}</span>
+                    </template>
                     <template v-else>
-                      {{ activeMenu === 'finance' ? (it.summary || '') : (it.publishTime || '') }}
+                      {{ it.publishTime || '' }}
                     </template>
                   </div>
                 </div>
@@ -1757,20 +1735,32 @@ onMounted(() => {
             <div class="historyBox" v-if="echartHistory.length">
               <div class="chartTitle">历史加载（public/echart）</div>
               <div class="muted" style="margin-bottom: 10px;">
-                点击文件名即可加载对应的 JSON 并重建图表（不会触发 AI 请求）。
+                点击 ID 即可加载对应的 JSON 并重建图表（不会触发 AI 请求）。
               </div>
               <div v-if="historyError" class="errorState" style="padding: 12px 0;">{{ historyError }}</div>
               <div class="historyList">
                 <button
-                  v-for="h in echartHistory"
-                  :key="h.path"
+                  v-for="h in echartHistoryPaginated"
+                  :key="h.id"
                   class="historyItem"
                   @click="loadIndustryFromHistory(h)"
                   type="button"
                 >
-                  <span class="mono">{{ h.filename }}</span>
-                  <span class="muted">加载</span>
+                  <div class="historyItemMain">
+                    <span class="historyTime">{{ h.createdAt || '' }}</span>
+                  </div>
                 </button>
+              </div>
+              <div class="echartPagination" v-if="echartHistoryTotal > echartHistoryPageSize">
+                <el-pagination
+                  v-model:current-page="echartHistoryPage"
+                  v-model:page-size="echartHistoryPageSize"
+                  :page-sizes="[10]"
+                  :total="echartHistoryTotal"
+                  background
+                  layout="prev, pager, next, total"
+                  small
+                />
               </div>
             </div>
             <div v-if="industryLoading" class="aiProgress">
@@ -1779,6 +1769,11 @@ onMounted(() => {
             </div>
 
             <div v-if="industryError" class="errorState">{{ industryError }}</div>
+
+            <div v-if="industryChartData?.reason" class="reasonBox" style="margin-top: 20px;">
+              <div class="chartTitle" style="text-align: center; border-left: none;">分析理由</div>
+              <pre class="pre" style="text-align: left;">{{ industryReasonText }}</pre>
+            </div>
 
             <div v-if="industryChartData" class="chartContainer">
               <div class="chartTitleRow">
@@ -1794,11 +1789,6 @@ onMounted(() => {
                 <button class="btn sm" @click="openChartPreview('mood')" type="button">放大</button>
               </div>
               <div ref="moodChartEl" class="chart small"></div>
-            </div>
-
-            <div v-if="industryChartData?.reason" class="reasonBox">
-              <div class="chartTitle">分析理由</div>
-              <pre class="pre">{{ industryReasonText }}</pre>
             </div>
 
             <div v-if="industryAiRaw" class="reasonBox">
@@ -1971,7 +1961,7 @@ onMounted(() => {
               <div v-else-if="aiResult" class="aiResultBody">
                 <pre class="pre">{{ aiResult }}</pre>
               </div>
-              <div v-else class="emptyState sm">点击上方“AI 解析”按钮开始分析</div>
+              <div v-else class="emptyState sm">点击上方"AI 解析"按钮开始分析</div>
             </div>
           </div>
         </div>
@@ -2143,6 +2133,11 @@ onMounted(() => {
 .spinner.sm { width: 16px; height: 16px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.financeSummary {
+  font-weight: 700;
+  color: var(--text-primary);
+  display: inline-block;
+}
 .yahooItem, .generalItem {
   display: flex;
   align-items: center;
@@ -2240,6 +2235,11 @@ onMounted(() => {
   align-items: flex-start;
   gap: 4px;
   min-width: 0;
+}
+.historyTime{
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
 }
 .mono{
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

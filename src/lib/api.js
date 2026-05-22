@@ -1,5 +1,12 @@
 ﻿// opinionflow-vue/src/lib/api.js
+import { IS_MICROSERVICE, PROXY_TARGET } from '../config.js'
+
 const BASE = '';
+
+// 控制台输出当前运行模式，方便调试
+console.info(
+  `[OpinionFlow] 运行模式：${IS_MICROSERVICE ? '微服务（OpinionFlow-Cloud）' : '单体'} | 代理目标：${PROXY_TARGET}`
+)
 
 async function request(path, init) {
   const resp = await fetch(BASE + path, {
@@ -35,7 +42,7 @@ function qs(params) {
 }
 
 export function listGeneral(page = 0, size = 50, { start, end, q } = {}) {
-  return request(`/api/news/general?page=${page}&size=${size}${qs({ start, end, q })}`)
+  return request(`/api/news?page=${page}&size=${size}${qs({ start, end, q })}`)
 }
 
 export function listDeepseekMenu(page = 0, size = 50, { start, end, q } = {}) {
@@ -138,7 +145,7 @@ export function runScript(key, payload = {}) {
 }
 
 export async function runScriptStream(key, { code, onEvent } = {}) {
-  const resp = await fetch('/api/scripts/run/stream', {
+  const resp = await fetch('/api/scripts/run-stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -229,8 +236,16 @@ export function listEchartFiles() {
   return request('/api/echart/list')
 }
 
+export function listEchartPage(page = 0, size = 20) {
+  return request(`/api/echart/page?page=${page}&size=${size}`)
+}
+
 export function readEchartFile(filename) {
   return request(`/api/echart/read/${encodeURIComponent(filename)}`)
+}
+
+export function getEchartDetail(id) {
+  return request(`/api/echart/${id}`)
 }
 
 // ── 记忆化对话 (MySQL + Redis 永久化) ──
@@ -315,4 +330,85 @@ export function deleteChatSession(sessionId) {
     method: 'DELETE',
   })
 }
+
+// ── 模块化组件兼容别名 ──
+// 以下为各面板组件提供的具名导出，方便直接按模块导入
+
+// 综合新闻
+export const fetchGeneralNewsList = listGeneral
+export const fetchGeneralNewsDetail = getNewsDetail
+export const aiParseGeneralNews = aiParse
+export const aiParseGeneralNewsStream = aiParseStream
+
+// 深度求索
+export const fetchDeepseekNewsList = listDeepseekMenu
+export const fetchDeepseekNewsDetail = getNewsDetail
+export const aiParseDeepseekNews = aiParse
+export const aiParseDeepseekNewsStream = aiParseStream
+
+// 财经新闻
+export const fetchFinanceNewsList = listFinance
+export const fetchFinanceNewsDetail = getFinanceDetail
+export const aiParseFinanceNews = aiParse
+export const aiParseFinanceNewsStream = aiParseStream
+
+// 雅虎财经
+export const fetchYahooNewsList = listYahooFinanceNews
+export const fetchYahooNewsDetail = getNewsDetail
+export const aiParseYahooNews = aiParse
+export const aiParseYahooNewsStream = aiParseStream
+
+// 纽约时报
+export const fetchNytNewsList = listNewYorkTimesNews
+export const fetchNytNewsDetail = getNewsDetail
+export const aiParseNytNews = aiParse
+export const aiParseNytNewsStream = aiParseStream
+
+// 个股舆情
+export const fetchStockComments = (params = {}) => {
+  const { keyword, intervalDays, page = 0, size = 100 } = params
+  return request(`/api/comments?keyword=${encodeURIComponent(keyword || '')}&intervalDays=${intervalDays || ''}&page=${page}&size=${size}`)
+}
+
+export const fetchStockCommentDetail = getStockCommentDetail
+
+// ── 详情 / AI / Echart / Chat 别名 ──
+
+export const fetchDetail = (id) => getNewsDetail(id)
+export const aiAnalyzeStream = async ({ messages, onEvent } = {}) => {
+  const content = messages?.map(m => m.content).join('\n') || ''
+  await aiParseStream(content, { onDelta: (d) => onEvent?.('delta', d) })
+  return {}
+}
+export const aiAnalyzeIndustryStream = async ({ selectedTexts, filename, onEvent } = {}) => {
+  await aiParseStream(selectedTexts, { onDelta: (d) => onEvent?.('delta', d) })
+  return {}
+}
+export const fetchEchartPage = listEchartPage
+export const fetchEchartDetail = async (id) => {
+  const resp = await request(`/api/echart/detail/${id}`)
+  if (resp?.jsonText) {
+    try { resp.jsonData = JSON.parse(resp.jsonText) } catch {}
+  }
+  return resp
+}
+export const aiCustomAnalyzeStream = async ({ prompt, selectedTexts, sessionId, onEvent } = {}) => {
+  const content = `${prompt}\n\n${selectedTexts || ''}`
+  await chatMemoryStream(content, {
+    sessionId,
+    selectedContent: selectedTexts,
+    onDelta: (d) => onEvent?.('delta', d),
+  })
+  return { sessionId }
+}
+export const aiChatHistory = () => listChatSessions()
+export const aiChatMessages = (sessionId) => chatMemoryHistory(sessionId)
+export const aiChatSendStream = async ({ sessionId, message, onEvent } = {}) => {
+  await chatMemoryStream(message, {
+    sessionId,
+    onDelta: (d) => onEvent?.('delta', d),
+  })
+}
+export const aiChatClearMemory = (sessionId) => chatMemoryClear(sessionId)
+export const aiChatDeleteSession = (sessionId) => deleteChatSession(sessionId)
 
