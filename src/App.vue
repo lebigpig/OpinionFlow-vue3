@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listStockComments, getStockCommentDetail, listYahooFinanceNews, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
 
 function htmlToPlainText(input) {
   const s = String(input ?? '')
@@ -82,6 +82,8 @@ const allSelectError = ref('')
 const selectedMap = ref({})
 const yahooSelectedData = ref({})
 const nytimesSelectedData = ref({})
+// 存储通过"全部选中"从后端获取的全部文章（title+content），key 为 "source:id"
+const bulkSelectedArticles = ref({})
 const industryLoading = ref(false)
 const industryError = ref('')
 const industryAiRaw = ref('')
@@ -510,6 +512,12 @@ async function selectAllResults() {
   // 如果已有勾选，则全部取消
   if (currentSourceSelectedCount.value > 0) {
     clearSourceSelection(source)
+    // 同时清除该 source 的批量文章缓存
+    const nextBulk = { ...bulkSelectedArticles.value }
+    for (const k of Object.keys(nextBulk)) {
+      if (k.startsWith(`${source}:`)) delete nextBulk[k]
+    }
+    bulkSelectedArticles.value = nextBulk
     return
   }
 
@@ -541,27 +549,122 @@ async function selectAllResults() {
     return
   }
 
-  // general / yahoo / nytimes：直接选中当前已加载的 items，无需发请求
-  if (source === 'yahoo') {
-    for (const it of items.value) {
-      toggleYahooSelected(it, true)
+  // general：远程获取全部 ID（无分页限制），并存储文章数据
+  if (source === 'general') {
+    allSelectLoading.value = true
+    allSelectError.value = ''
+    try {
+      const start = timeRange.value?.[0] || ''
+      const end = timeRange.value?.[1] || ''
+      const q = keyword.value?.trim() || ''
+      const resp = await listGeneralIds({ start, end, q, limit: total.value || 50000 })
+      const ids = resp?.ids || []
+      const truncated = !!resp?.truncated
+      const next = { ...selectedMap.value }
+      for (const id of ids) {
+        next[`general:${id}`] = true
+      }
+      selectedMap.value = next
+      // 获取全部列表数据以存储 title/content 等信息
+      try {
+        const fetchSize = ids.length || (total.value || 50000)
+        const listResp = await listGeneral(0, fetchSize, { start, end, q })
+        const rows = listResp?.content || listResp?.list || []
+        const nextBulk = { ...bulkSelectedArticles.value }
+        for (const r of rows) {
+          const key = `general:${r.id}`
+          if (next[key] && !nextBulk[key]) {
+            nextBulk[key] = {
+              title: r.title || '',
+              content: r.summary || r.content || '',
+            }
+          }
+        }
+        bulkSelectedArticles.value = nextBulk
+      } catch (bulkErr) {
+        console.warn('获取 general 全量文章数据失败，词云分析时将逐条请求详情', bulkErr)
+      }
+      if (truncated) {
+        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
+        alert(allSelectError.value)
+      }
+    } catch (e) {
+      allSelectError.value = e?.message || String(e)
+    } finally {
+      allSelectLoading.value = false
     }
     return
   }
+
+  // yahoo：远程获取全部 ID（无分页限制），并获取全量文章数据存储
+  if (source === 'yahoo') {
+    allSelectLoading.value = true
+    allSelectError.value = ''
+    try {
+      const start = timeRange.value?.[0] || ''
+      const end = timeRange.value?.[1] || ''
+      const q = keyword.value?.trim() || ''
+      const resp = await listYahooIds({ start, end, q, limit: total.value || 50000 })
+      const ids = resp?.ids || []
+      const truncated = !!resp?.truncated
+      const next = { ...selectedMap.value }
+      for (const id of ids) {
+        next[`yahoo:${id}`] = true
+      }
+      selectedMap.value = next
+      // 获取全部列表数据以存储 title/summary 等信息
+      try {
+        const fetchSize = ids.length || (total.value || 50000)
+        const listResp = await listYahooFinanceNews(0, fetchSize, { start, end, q })
+        const rows = listResp?.content || listResp?.list || []
+        const nextData = { ...yahooSelectedData.value }
+        for (const r of rows) {
+          const idStr = String(r.id)
+          if (next[`yahoo:${idStr}`] && !nextData[idStr]) {
+            nextData[idStr] = {
+              title: r.title || '',
+              displayTime: r.displayTime || '',
+              summary: r.summary || '',
+            }
+          }
+        }
+        yahooSelectedData.value = nextData
+      } catch (bulkErr) {
+        // 回退：至少存储当前页面数据
+        const nextData = { ...yahooSelectedData.value }
+        for (const it of items.value) {
+          const idStr = String(it.id)
+          if (next[`yahoo:${idStr}`] && !nextData[idStr]) {
+            nextData[idStr] = {
+              title: it?.title || '',
+              displayTime: it?.displayTime || '',
+              summary: it?.summary || '',
+            }
+          }
+        }
+        yahooSelectedData.value = nextData
+        console.warn('获取 yahoo 全量文章数据失败，仅存储当前页数据', bulkErr)
+      }
+      if (truncated) {
+        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
+        alert(allSelectError.value)
+      }
+    } catch (e) {
+      allSelectError.value = e?.message || String(e)
+    } finally {
+      allSelectLoading.value = false
+    }
+    return
+  }
+
+  // nytimes：直接选中当前已加载的 items，无需发请求
   if (source === 'nytimes') {
     for (const it of items.value) {
       toggleNytimesSelected(it, true)
     }
     return
   }
-  // general
-  const next = { ...selectedMap.value }
-  for (const it of items.value) {
-    next[`general:${it.id}`] = true
-  }
-  selectedMap.value = next
 }
-
 const aiCustomPrompt = ref('')
 const aiCustomLoading = ref(false)
 const aiCustomError = ref('')
@@ -871,6 +974,15 @@ async function runIndustryAnalysis() {
 
       const id = Number(idStr)
       if (!Number.isFinite(id)) continue
+      // 优先从批量缓存中获取
+      const cached = bulkSelectedArticles.value[k]
+      if (cached) {
+        articles.push({
+          title: cached.title || '',
+          content: cached.content || '',
+        })
+        continue
+      }
       const detail = source === 'finance'
         ? await getFinanceDetail(id)
         : await getNewsDetail(id)
