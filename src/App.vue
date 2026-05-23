@@ -1,8 +1,11 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppHeader from './components/header/AppHeader.vue'
+import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
+import ScriptPanel from './components/Run Script/ScriptPanel.vue'
+import TimeFilter from './components/Filter/TimeFilter.vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews, saveEchartJson, runScriptStream, runAllScriptsStream, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews, saveEchartJson, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
 
 function htmlToPlainText(input) {
   const s = String(input ?? '')
@@ -133,110 +136,12 @@ const aiLoading = ref(false)
 const aiError = ref('')
 const aiResult = ref('')
 
-const scriptRunning = ref(false)
-const scriptError = ref('')
-const scriptResult = ref(null)
-const scriptStockCodeInput = ref('')
-const scriptStdoutLive = ref('')
-const scriptStderrLive = ref('')
-const scriptMetaLive = ref('')
-const scriptStockCode = computed(() => {
-  const raw = String(scriptStockCodeInput.value ?? '').trim()
-  if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (!digits) return ''
-  const last6 = digits.slice(-6)
-  return last6.padStart(6, '0')
-})
-
 function scriptKeyFromMenu() {
   if (activeMenu.value === 'script_all') return 'all'
   if (activeMenu.value === 'script_comments') return 'comments'
   if (activeMenu.value === 'script_news') return 'news'
   if (activeMenu.value === 'script_realtime') return 'realtime'
   return null
-}
-
-async function runAllScripts() {
-  scriptRunning.value = true
-  scriptError.value = ''
-  scriptResult.value = null
-  scriptStdoutLive.value = ''
-  scriptStderrLive.value = ''
-  scriptMetaLive.value = ''
-  try {
-    const code = scriptStockCode.value
-    await runAllScriptsStream({
-      code,
-      onEvent: (evt, data) => {
-        if (evt === 'stdout') { scriptStdoutLive.value += data + '\n'; return }
-        if (evt === 'stderr') { scriptStderrLive.value += data + '\n'; return }
-        if (evt === 'meta') { scriptMetaLive.value += data + '\n'; return }
-        if (evt === 'done_all') {
-          try { scriptResult.value = JSON.parse(data) } catch {}
-          return
-        }
-        if (evt === 'error') { scriptError.value = data || '脚本运行失败' }
-      },
-    })
-  } catch (e) {
-    scriptError.value = e?.message || String(e)
-  } finally {
-    scriptRunning.value = false
-  }
-}
-
-async function runActiveScript() {
-  const k = scriptKeyFromMenu()
-  if (!k) return
-  if (k === 'all') {
-    await runAllScripts()
-    return
-  }
-  scriptRunning.value = true
-  scriptError.value = ''
-  scriptResult.value = null
-  scriptStdoutLive.value = ''
-  scriptStderrLive.value = ''
-  scriptMetaLive.value = ''
-  try {
-    const code = (k === 'comments') ? scriptStockCode.value : undefined
-    await runScriptStream(k, {
-      code,
-      onEvent: (evt, data) => {
-        if (evt === 'stdout') {
-          scriptStdoutLive.value += data + '\n'
-          return
-        }
-        if (evt === 'stderr') {
-          scriptStderrLive.value += data + '\n'
-          return
-        }
-        if (evt === 'meta') {
-          scriptMetaLive.value += data + '\n'
-          return
-        }
-        if (evt === 'done') {
-          try {
-            scriptResult.value = JSON.parse(data)
-            if (!scriptResult.value?.ok) {
-              scriptError.value = scriptResult.value?.message || '脚本运行失败'
-            }
-          } catch {
-            // ignore
-          }
-          return
-        }
-        if (evt === 'error') {
-          scriptError.value = data || '脚本运行失败'
-        }
-      },
-    })
-  } catch (e) {
-    scriptError.value = e?.message || String(e)
-  } finally {
-    scriptRunning.value = false
-  }
 }
 
 watch(isDark, (val) => {
@@ -1516,13 +1421,8 @@ watch(activeMenu, () => {
     loadEchartHistory()
   } else if (!scriptKeyFromMenu()) {
     loadList()
-  } else {
-    scriptError.value = ''
-    scriptResult.value = null
-    if (activeMenu.value !== 'script_comments') {
-      scriptStockCodeInput.value = ''
-    }
   }
+  // ScriptPanel 组件内部自行管理状态
 })
 
 onMounted(() => {
@@ -1545,114 +1445,20 @@ onMounted(() => {
   />
 
   <div class="layout">
-    <aside class="sidebar card">
-      <div class="menu">
-        <div v-for="g in menuGroups" :key="g.key" class="menuGroup">
-          <div class="menuGroupHeader" @click="groupOpen[g.key] = !groupOpen[g.key]">
-            <span>{{ g.name }}</span>
-            <span class="arrow" :class="{ rotated: !groupOpen[g.key] }">▼</span>
-          </div>
-
-          <transition name="menu-fade">
-            <div v-if="groupOpen[g.key]" class="menuGroupContent">
-              <button
-                v-for="m in g.children"
-                :key="m.key"
-                class="menuItem"
-                :class="{ active: activeMenu === m.key }"
-                @click="activeMenu = m.key"
-              >
-                {{ m.name }}
-              </button>
-            </div>
-          </transition>
-        </div>
-      </div>
-    </aside>
+    <AppSidebar
+      :menuGroups="menuGroups"
+      :groupOpen="groupOpen"
+      :activeMenu="activeMenu"
+      @toggleGroup="(key) => groupOpen[key] = !groupOpen[key]"
+      @selectMenu="(key) => activeMenu = key"
+    />
 
     <main class="mainContent">
-      <div v-if="scriptKeyFromMenu()" class="card scriptPanel">
-        <div class="cardHeader">
-          <div style="font-weight:800; font-size: 16px;">脚本运行 · {{ activeMenuName }}</div>
-          <div class="headerActions">
-            <button
-              class="btn primary"
-              @click="runActiveScript"
-              :disabled="scriptRunning || (activeMenu === 'script_comments' && !scriptStockCode)"
-            >
-              {{ scriptRunning ? '运行中...' : '运行脚本' }}
-            </button>
-            <button class="btn" @click="() => { scriptError = ''; scriptResult = null }" :disabled="scriptRunning" type="button">
-              清空输出
-            </button>
-          </div>
-        </div>
-        <div class="cardBody">
-          <div class="muted">
-            这里会调用后端执行你配置的 Python 脚本（仅支持 comments/news/realtime 三个 key）。仅在你手动点击"运行脚本"时执行。
-          </div>
-
-          <div v-if="activeMenu === 'script_comments'" class="scriptForm">
-            <div class="muted" style="font-weight: 700;">请输入股票编号</div>
-            <div class="scriptRow">
-              <el-input
-                v-model="scriptStockCodeInput"
-                placeholder="例如：601398 / 000001"
-                clearable
-                @keyup.enter="runActiveScript"
-              />
-              <span class="badge" v-if="scriptStockCode">格式化：{{ scriptStockCode }}</span>
-            </div>
-            <div class="muted" v-if="scriptStockCode">
-              将执行：<span class="monoInline">{{ `--code ${scriptStockCode}` }}</span>
-            </div>
-          </div>
-
-          <div v-else-if="activeMenu === 'script_all'" class="scriptForm">
-            <div class="muted" style="font-weight: 700;">请输入股票编号（用于评论爬取）</div>
-            <div class="scriptRow">
-              <el-input
-                v-model="scriptStockCodeInput"
-                placeholder="例如：601398 / 000001"
-                clearable
-                @keyup.enter="runActiveScript"
-              />
-              <span class="badge" v-if="scriptStockCode">格式化：{{ scriptStockCode }}</span>
-            </div>
-            <div class="muted" v-if="scriptStockCode">
-              将并行运行：<span class="monoInline">comments(--code)</span>、<span class="monoInline">news</span>、<span class="monoInline">realtime</span>
-            </div>
-          </div>
-
-          <div v-if="scriptError" class="errorState" style="padding: 12px 0;">{{ scriptError }}</div>
-          <div v-if="scriptRunning" class="aiProgress">
-            <div class="spinner sm"></div>
-            <span>脚本运行中...</span>
-          </div>
-          <div v-if="scriptMetaLive" class="aiResultBox">
-            <div class="chartTitle">meta</div>
-            <pre class="pre">{{ scriptMetaLive }}</pre>
-          </div>
-          <div v-if="scriptStdoutLive" class="aiResultBox">
-            <div class="chartTitle">stdout（实时）</div>
-            <pre class="pre">{{ scriptStdoutLive }}</pre>
-          </div>
-          <div v-if="scriptStderrLive" class="aiResultBox">
-            <div class="chartTitle">stderr（实时）</div>
-            <pre class="pre">{{ scriptStderrLive }}</pre>
-          </div>
-          <div v-if="scriptResult" class="aiResultBox">
-            <div class="muted" style="margin-bottom: 10px;">
-              key={{ scriptResult.key }}；exit={{ scriptResult.exitCode }}；耗时={{ scriptResult.durationMs }}ms
-            </div>
-            <div class="chartTitle">stdout</div>
-            <pre class="pre">{{ scriptResult.stdout || '' }}</pre>
-            <div class="chartTitle" style="margin-top: 14px;">stderr</div>
-            <pre class="pre">{{ scriptResult.stderr || '' }}</pre>
-          </div>
-          <div v-else-if="!scriptRunning" class="emptyState sm">点击"运行脚本"开始执行</div>
-        </div>
-      </div>
+      <ScriptPanel
+        v-if="scriptKeyFromMenu()"
+        :activeMenu="activeMenu"
+        :activeMenuName="activeMenuName"
+      />
 
       <template v-else>
       <div class="card listCard">
@@ -1662,20 +1468,10 @@ onMounted(() => {
         </div>
         <div class="cardBody">
           <div class="filterBar" v-show="activeMenu !== 'ai_custom' && activeMenu !== 'industry'">
-            <div class="filterItem">
-              <span class="muted">时间范围</span>
-              <el-date-picker
-                v-model="timeRange"
-                type="datetimerange"
-                range-separator="至"
-                start-placeholder="开始"
-                end-placeholder="结束"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                format="YYYY-MM-DD HH:mm:ss"
-                :clearable="true"
-                @change="() => { page = 1; loadList() }"
-              />
-            </div>
+            <TimeFilter
+              v-model="timeRange"
+              @change="() => { page = 1; loadList() }"
+            />
 
             <div class="filterItem">
               <el-input
@@ -2006,31 +1802,6 @@ onMounted(() => {
             </div>
           </div>
 
-          <div v-else-if="scriptKeyFromMenu()">
-            <div class="muted">
-              这里会调用后端执行你配置的 Python 脚本（仅支持 comments/news/realtime 三个 key）。
-            </div>
-            <div class="actionGroup">
-              <button class="btn primary" @click="runActiveScript" :disabled="scriptRunning">
-                {{ scriptRunning ? '运行中...' : '运行脚本' }}
-              </button>
-              <button class="btn" @click="() => { scriptError = ''; scriptResult = null }" :disabled="scriptRunning" type="button">
-                清空输出
-              </button>
-            </div>
-
-            <div v-if="scriptError" class="errorState" style="padding: 12px 0;">{{ scriptError }}</div>
-            <div v-if="scriptResult" class="aiResultBox">
-              <div class="muted" style="margin-bottom: 10px;">
-                key={{ scriptResult.key }}；exit={{ scriptResult.exitCode }}；耗时={{ scriptResult.durationMs }}ms
-              </div>
-              <div class="chartTitle">stdout</div>
-              <pre class="pre">{{ scriptResult.stdout || '' }}</pre>
-              <div class="chartTitle" style="margin-top: 14px;">stderr</div>
-              <pre class="pre">{{ scriptResult.stderr || '' }}</pre>
-            </div>
-          </div>
-
           <div v-else-if="activeMenu === 'yahoo'">
             <div class="muted">勾选雅虎新闻后发送给 AI 分析。</div>
             <div class="actionGroup">
@@ -2147,35 +1918,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.sidebar {
-  height: fit-content;
-  position: sticky;
-  top: 20px;
-}
-.menuGroup {
-  margin-bottom: 8px;
-}
-.menuGroupHeader {
-  padding: 12px 16px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-radius: 10px;
-  transition: background 0.2s;
-}
-.menuGroupHeader:hover {
-  background: var(--panel-bg-2);
-}
-.arrow {
-  font-size: 10px;
-  transition: transform 0.3s;
-}
-.arrow.rotated {
-  transform: rotate(-90deg);
-}
-
 .mainContent {
   display: grid;
   grid-template-columns: 1fr 400px;
@@ -2471,9 +2213,6 @@ onMounted(() => {
 /* Transitions */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-
-.menu-fade-enter-active, .menu-fade-leave-active { transition: all 0.3s ease; max-height: 500px; overflow: hidden; }
-.menu-fade-enter-from, .menu-fade-leave-to { max-height: 0; opacity: 0; }
 
 .chartPreviewOverlay{
   position: fixed;
