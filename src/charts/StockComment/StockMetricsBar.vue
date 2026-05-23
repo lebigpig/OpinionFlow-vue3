@@ -9,22 +9,54 @@ const props = defineProps({
 
 const stockThemesBarEl = ref(null)
 let stockThemesBarInst = null
+let resizeBound = false
 
+/** 具名 resize handler，确保 add/remove 使用同一引用 */
+function onResize() {
+  stockThemesBarInst?.resize()
+}
+
+/** 绑定全局 resize 事件（仅绑定一次） */
+function bindResize() {
+  if (!resizeBound) {
+    window.addEventListener('resize', onResize)
+    resizeBound = true
+  }
+}
+
+/** 解绑全局 resize 事件 */
+function unbindResize() {
+  if (resizeBound) {
+    window.removeEventListener('resize', onResize)
+    resizeBound = false
+  }
+}
+
+/**
+ * 渲染/更新图表。
+ * - 首次调用时创建 ECharts 实例并绑定 resize
+ * - 后续复用实例，仅 clear + setOption 更新数据
+ * - 若 DOM 元素发生变化（如 v-if 重建），则重新 init
+ */
 function render() {
   if (!stockThemesBarEl.value) return
 
-  if (stockThemesBarInst) {
+  // DOM 元素变化或首次：需要重新 init
+  if (!stockThemesBarInst || stockThemesBarInst.isDisposed?.()) {
+    stockThemesBarInst = echarts.init(stockThemesBarEl.value, props.isDark ? 'dark' : null)
+    bindResize()
+  } else if (stockThemesBarInst.getDom() !== stockThemesBarEl.value) {
+    // DOM 发生了变化，销毁旧实例，重新创建
     stockThemesBarInst.dispose()
-    stockThemesBarInst = null
+    stockThemesBarInst = echarts.init(stockThemesBarEl.value, props.isDark ? 'dark' : null)
+    // resize 已绑定，无需重复绑定
   }
-
-  stockThemesBarInst = echarts.init(stockThemesBarEl.value, props.isDark ? 'dark' : null)
-  window.addEventListener('resize', () => stockThemesBarInst?.resize())
 
   const themes = props.themes?.length ? props.themes : []
 
+  stockThemesBarInst.clear()
+
   if (!themes.length) {
-    stockThemesBarInst.clear()
     stockThemesBarInst.setOption({
       backgroundColor: 'transparent',
       title: { text: '暂无 main_themes 数据', left: 'center', top: 'middle', textStyle: { fontSize: 14, color: '#888' } },
@@ -54,12 +86,14 @@ function render() {
       series: [{ type: 'bar', data: values, itemStyle: { color: '#9b59b6' } }],
     }, true)
   }
+
+  stockThemesBarInst.resize()
 }
 
 function dispose() {
+  unbindResize()
   stockThemesBarInst?.dispose()
   stockThemesBarInst = null
-  window.removeEventListener('resize', () => stockThemesBarInst?.resize())
 }
 
 function resize() {

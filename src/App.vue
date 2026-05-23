@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
-import StockMetricsBar from './charts/StockComment/StockMetricsBar.vue'
+import StockThemesBar from './charts/StockComment/StockThemesBar.vue'
 import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
@@ -1825,7 +1825,7 @@ onMounted(() => {
               </div>
               <div class="chartGroup">
                 <div class="chartTitle">主要叙事主题 (Themes)</div>
-                <StockMetricsBar ref="stockThemesBarRef" :isDark="isDark" :themes="detail?.mainThemes || []" />
+                <StockThemesBar ref="stockThemesBarRef" :isDark="isDark" :themes="detail?.mainThemes || []" />
                 <div v-if="(detail?.mainThemesContent || '').trim()" class="themeContentBox">
                   <div class="chartTitle">主题解读 (main_themes_content)</div>
                   <pre class="pre themeContentPre">{{ detail.mainThemesContent }}</pre>
