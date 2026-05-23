@@ -1,22 +1,23 @@
 <script setup>
-import { ref, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import * as echarts from 'echarts'
 
 const props = defineProps({
   isDark: { type: Boolean, default: false },
-  themes: { type: Array, default: () => [] },
+  ivi: { type: Number, default: 0 },
+  narrativeCoherence: { type: Number, default: 0 },
+  infoSourceReliance: { type: Number, default: 0 },
+  themeCount: { type: Number, default: 0 },
 })
 
-const stockThemesBarEl = ref(null)
-let stockThemesBarInst = null
+const chartEl = ref(null)
+let chartInst = null
 let resizeBound = false
 
-/** 具名 resize handler，确保 add/remove 使用同一引用 */
 function onResize() {
-  stockThemesBarInst?.resize()
+  chartInst?.resize()
 }
 
-/** 绑定全局 resize 事件（仅绑定一次） */
 function bindResize() {
   if (!resizeBound) {
     window.addEventListener('resize', onResize)
@@ -24,7 +25,6 @@ function bindResize() {
   }
 }
 
-/** 解绑全局 resize 事件 */
 function unbindResize() {
   if (resizeBound) {
     window.removeEventListener('resize', onResize)
@@ -32,84 +32,53 @@ function unbindResize() {
   }
 }
 
-/**
- * 渲染/更新图表。
- * - 首次调用时创建 ECharts 实例并绑定 resize
- * - 后续复用实例，仅 clear + setOption 更新数据
- * - 若 DOM 元素发生变化（如 v-if 重建），则重新 init
- */
 function render() {
-  if (!stockThemesBarEl.value) return
+  if (!chartEl.value) return
 
-  // DOM 元素变化或首次：需要重新 init
-  if (!stockThemesBarInst || stockThemesBarInst.isDisposed?.()) {
-    stockThemesBarInst = echarts.init(stockThemesBarEl.value, props.isDark ? 'dark' : null)
+  if (!chartInst || chartInst.isDisposed?.()) {
+    chartInst = echarts.init(chartEl.value, props.isDark ? 'dark' : null)
     bindResize()
-  } else if (stockThemesBarInst.getDom() !== stockThemesBarEl.value) {
-    // DOM 发生了变化，销毁旧实例，重新创建
-    stockThemesBarInst.dispose()
-    stockThemesBarInst = echarts.init(stockThemesBarEl.value, props.isDark ? 'dark' : null)
-    // resize 已绑定，无需重复绑定
+  } else if (chartInst.getDom() !== chartEl.value) {
+    chartInst.dispose()
+    chartInst = echarts.init(chartEl.value, props.isDark ? 'dark' : null)
   }
 
-  const themes = props.themes?.length ? props.themes : []
+  const vIvi = props.ivi ?? 0
+  const vNar = props.narrativeCoherence ?? 0
+  const vInfo = props.infoSourceReliance ?? 0
+  const themeBar = Math.max(0, props.themeCount ?? 0)
+  const maxY = Math.max(100, vIvi, vNar, vInfo, themeBar)
 
-  stockThemesBarInst.clear()
+  chartInst.clear()
+  chartInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    grid: { left: 48, right: 16, top: 36, bottom: 72, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: ['IVI(非理性)', '叙事一致性', '信息源依赖度', '主题数量'],
+      axisLabel: { interval: 0, rotate: 18 },
+    },
+    yAxis: { type: 'value', min: 0, max: maxY, name: '分数/个数' },
+    series: [{
+      type: 'bar',
+      data: [vIvi, vNar, vInfo, themeBar],
+      itemStyle: { color: '#3498db' },
+    }],
+  }, true)
 
-  if (!themes.length) {
-    stockThemesBarInst.setOption({
-      backgroundColor: 'transparent',
-      title: { text: '暂无 main_themes 数据', left: 'center', top: 'middle', textStyle: { fontSize: 14, color: '#888' } },
-      xAxis: { show: false },
-      yAxis: { show: false },
-      series: [],
-    }, true)
-  } else {
-    const isWeightedObject = themes.length && typeof themes[0] === 'object' && themes[0] !== null && 'name' in themes[0] && 'weight' in themes[0]
-    const labels = isWeightedObject ? themes.map(t => String(t.name ?? '')) : themes.map(t => String(t ?? ''))
-    const values = isWeightedObject ? themes.map(t => Number(t.weight ?? 0)) : themes.map(() => 1)
-    const maxV = Math.max(1, ...values.filter(v => Number.isFinite(v)).map(v => Math.max(0, v)))
-    stockThemesBarInst.setOption({
-      backgroundColor: 'transparent',
-      title: { show: false, text: '' },
-      tooltip: {
-        trigger: 'axis',
-        valueFormatter: (v) => {
-          const n = Number(v)
-          if (!Number.isFinite(n)) return String(v ?? '')
-          return (isWeightedObject ? n.toFixed(3) : String(n))
-        },
-      },
-      grid: { left: 48, right: 16, top: 28, bottom: 88, containLabel: true },
-      xAxis: { type: 'category', data: labels, axisLabel: { interval: 0, rotate: 28 } },
-      yAxis: { type: 'value', min: 0, max: maxV, name: isWeightedObject ? '权重(0-1)' : '出现(示意)' },
-      series: [{ type: 'bar', data: values, itemStyle: { color: '#9b59b6' } }],
-    }, true)
-  }
-
-  stockThemesBarInst.resize()
+  chartInst.resize()
 }
 
 function dispose() {
   unbindResize()
-  stockThemesBarInst?.dispose()
-  stockThemesBarInst = null
+  chartInst?.dispose()
+  chartInst = null
 }
 
 function resize() {
-  stockThemesBarInst?.resize()
+  chartInst?.resize()
 }
-
-watch(
-  () => [props.themes, props.isDark],
-  async () => {
-    await nextTick()
-    requestAnimationFrame(() => {
-      render()
-    })
-  },
-  { deep: true }
-)
 
 onBeforeUnmount(() => {
   dispose()
@@ -119,7 +88,7 @@ defineExpose({ render, dispose, resize })
 </script>
 
 <template>
-  <div ref="stockThemesBarEl" class="chart"></div>
+  <div ref="chartEl" class="chart"></div>
 </template>
 
 <style scoped>

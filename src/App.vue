@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
 import StockThemesBar from './charts/StockComment/StockThemesBar.vue'
+import StockMetricsBar from './charts/StockComment/StockMetricsBar.vue'
 import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
@@ -117,10 +118,9 @@ const chartPreviewEl = ref(null)
 let chartPreviewInst = null
 
 const stockMoodPieEl = ref(null)
-const stockMetricsBarEl = ref(null)
+const stockMetricsBarRef = ref(null)
 const stockThemesBarRef = ref(null)
 let stockMoodPieInst = null
-let stockMetricsBarInst = null
 
 const selectedId = ref(null)
 const loadingDetail = ref(false)
@@ -1151,8 +1151,7 @@ watch(industryChartData, async () => {
 function disposeStockCommentCharts() {
   stockMoodPieInst?.dispose()
   stockMoodPieInst = null
-  stockMetricsBarInst?.dispose()
-  stockMetricsBarInst = null
+  stockMetricsBarRef.value?.dispose()
   stockThemesBarRef.value?.dispose()
 }
 
@@ -1225,39 +1224,10 @@ function renderStockCommentCharts(d) {
     }, true)
   }
 
-  const ivi = parseScore0to100(x.ivi)
-  const nar = parseScore0to100(x.narrativeCoherence)
-  const info = parseScore0to100(x.infoSourceReliance)
-  const tc = Number(x.themeCount)
-  const themeBar = Number.isFinite(tc) ? Math.max(0, tc) : 0
-  const vIvi = ivi ?? 0
-  const vNar = nar ?? 0
-  const vInfo = info ?? 0
-  const maxY = Math.max(100, vIvi, vNar, vInfo, themeBar)
-
-  if (stockMetricsBarEl.value) {
-    if (stockMetricsBarInst) {
-      stockMetricsBarInst.dispose()
-      stockMetricsBarInst = null
-    }
-    stockMetricsBarInst = echarts.init(stockMetricsBarEl.value, isDark.value ? 'dark' : null)
-    window.addEventListener('resize', () => stockMetricsBarInst?.resize())
-    stockMetricsBarInst.setOption({
-      backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
-      grid: { left: 48, right: 16, top: 36, bottom: 72, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: ['IVI(非理性)', '叙事一致性', '信息源依赖度', '主题数量'],
-        axisLabel: { interval: 0, rotate: 18 },
-      },
-      yAxis: { type: 'value', min: 0, max: maxY, name: '分数/个数' },
-      series: [{
-        type: 'bar',
-        data: [vIvi, vNar, vInfo, themeBar],
-        itemStyle: { color: '#3498db' },
-      }],
-    }, true)
+  if (stockMetricsBarRef.value) {
+    nextTick(() => {
+      stockMetricsBarRef.value.render()
+    })
   }
 
   const themes = x.mainThemes?.length ? x.mainThemes : []
@@ -1305,7 +1275,7 @@ async function openDetail(id) {
       renderStockCommentCharts(detail.value)
       requestAnimationFrame(() => {
         stockMoodPieInst?.resize()
-        stockMetricsBarInst?.resize()
+        stockMetricsBarRef.value?.resize()
         stockThemesBarRef.value?.resize()
       })
       return
@@ -1821,7 +1791,7 @@ onMounted(() => {
               </div>
               <div class="chartGroup">
                 <div class="chartTitle">核心指标分析</div>
-                <div ref="stockMetricsBarEl" class="chart"></div>
+                <StockMetricsBar ref="stockMetricsBarRef" :isDark="isDark" :ivi="parseScore0to100(detail?.ivi) ?? 0" :narrativeCoherence="parseScore0to100(detail?.narrativeCoherence) ?? 0" :infoSourceReliance="parseScore0to100(detail?.infoSourceReliance) ?? 0" :themeCount="Number(detail?.themeCount) || 0" />
               </div>
               <div class="chartGroup">
                 <div class="chartTitle">主要叙事主题 (Themes)</div>
