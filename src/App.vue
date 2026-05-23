@@ -1503,7 +1503,7 @@ onMounted(() => {
 
       <template v-else>
       <div class="card listCard">
-        <div class="cardHeader">
+        <div class="cardHeader" v-if="activeMenu !== 'industry'">
           <div style="font-weight:700; font-size: 16px;">列表</div>
           <div class="muted" v-if="total">共 {{ total }} 条</div>
         </div>
@@ -1557,8 +1557,31 @@ onMounted(() => {
             {{ financeAllSelectError }}
           </div>
 
+          <!-- 词云分析：reasonBox + 图表在 listCard 顶部 -->
+          <template v-if="activeMenu === 'industry'">
+            <div v-if="industryChartData?.reason" class="reasonBox" style="margin-top: 0;">
+              <div class="chartTitle" style="text-align: center; border-left: none;">分析理由</div>
+              <pre class="pre" style="text-align: left;">{{ industryReasonText }}</pre>
+            </div>
+            <div v-if="industryChartData" class="chartContainer">
+              <div class="chartTitleRow">
+                <div class="chartTitle">行业风险/机会分布</div>
+                <button class="btn sm" @click="openChartPreview('industry')" type="button">放大</button>
+              </div>
+              <div ref="chartEl" class="chart"></div>
+            </div>
+            <div v-if="industryChartData" class="chartContainer">
+              <div class="chartTitleRow">
+                <div class="chartTitle">整体情绪分布</div>
+                <button class="btn sm" @click="openChartPreview('mood')" type="button">放大</button>
+              </div>
+              <div ref="moodChartEl" class="chart small"></div>
+            </div>
+            <div v-if="!industryChartData" class="emptyState">请在右侧详情面板中选择新闻后点击"开始分析"</div>
+          </template>
+
           <!-- AI分析 菜单：微信风格聊天界面 -->
-          <div v-if="activeMenu === 'ai_custom'" class="chatPanel">
+          <div v-else-if="activeMenu === 'ai_custom'" class="chatPanel">
             <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
             <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
 
@@ -1769,27 +1792,6 @@ onMounted(() => {
             </div>
 
             <div v-if="industryError" class="errorState">{{ industryError }}</div>
-
-            <div v-if="industryChartData?.reason" class="reasonBox" style="margin-top: 20px;">
-              <div class="chartTitle" style="text-align: center; border-left: none;">分析理由</div>
-              <pre class="pre" style="text-align: left;">{{ industryReasonText }}</pre>
-            </div>
-
-            <div v-if="industryChartData" class="chartContainer">
-              <div class="chartTitleRow">
-                <div class="chartTitle">行业风险/机会分布</div>
-                <button class="btn sm" @click="openChartPreview('industry')" type="button">放大</button>
-              </div>
-              <div ref="chartEl" class="chart"></div>
-            </div>
-
-            <div v-if="industryChartData" class="chartContainer">
-              <div class="chartTitleRow">
-                <div class="chartTitle">整体情绪分布</div>
-                <button class="btn sm" @click="openChartPreview('mood')" type="button">放大</button>
-              </div>
-              <div ref="moodChartEl" class="chart small"></div>
-            </div>
 
             <div v-if="industryAiRaw" class="reasonBox">
               <div class="chartTitle">AI 原始输出（JSON）</div>
