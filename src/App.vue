@@ -1,6 +1,7 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
+import StockMetricsBar from './charts/StockComment/StockMetricsBar.vue'
 import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
@@ -117,10 +118,9 @@ let chartPreviewInst = null
 
 const stockMoodPieEl = ref(null)
 const stockMetricsBarEl = ref(null)
-const stockThemesBarEl = ref(null)
+const stockThemesBarRef = ref(null)
 let stockMoodPieInst = null
 let stockMetricsBarInst = null
-let stockThemesBarInst = null
 
 const selectedId = ref(null)
 const loadingDetail = ref(false)
@@ -1153,8 +1153,7 @@ function disposeStockCommentCharts() {
   stockMoodPieInst = null
   stockMetricsBarInst?.dispose()
   stockMetricsBarInst = null
-  stockThemesBarInst?.dispose()
-  stockThemesBarInst = null
+  stockThemesBarRef.value?.dispose()
 }
 
 function parseScore0to100(v) {
@@ -1262,44 +1261,10 @@ function renderStockCommentCharts(d) {
   }
 
   const themes = x.mainThemes?.length ? x.mainThemes : []
-  if (stockThemesBarEl.value) {
-    if (stockThemesBarInst) {
-      stockThemesBarInst.dispose()
-      stockThemesBarInst = null
-    }
-    stockThemesBarInst = echarts.init(stockThemesBarEl.value, isDark.value ? 'dark' : null)
-    window.addEventListener('resize', () => stockThemesBarInst?.resize())
-    if (!themes.length) {
-      stockThemesBarInst.clear()
-      stockThemesBarInst.setOption({
-        backgroundColor: 'transparent',
-        title: { text: '暂无 main_themes 数据', left: 'center', top: 'middle', textStyle: { fontSize: 14, color: '#888' } },
-        xAxis: { show: false },
-        yAxis: { show: false },
-        series: [],
-      }, true)
-    } else {
-      const isWeightedObject = themes.length && typeof themes[0] === 'object' && themes[0] !== null && 'name' in themes[0] && 'weight' in themes[0]
-      const labels = isWeightedObject ? themes.map(t => String(t.name ?? '')) : themes.map(t => String(t ?? ''))
-      const values = isWeightedObject ? themes.map(t => Number(t.weight ?? 0)) : themes.map(() => 1)
-      const maxV = Math.max(1, ...values.filter(v => Number.isFinite(v)).map(v => Math.max(0, v)))
-      stockThemesBarInst.setOption({
-        backgroundColor: 'transparent',
-        title: { show: false, text: '' },
-        tooltip: {
-          trigger: 'axis',
-          valueFormatter: (v) => {
-            const n = Number(v)
-            if (!Number.isFinite(n)) return String(v ?? '')
-            return (isWeightedObject ? n.toFixed(3) : String(n))
-          },
-        },
-        grid: { left: 48, right: 16, top: 28, bottom: 88, containLabel: true },
-        xAxis: { type: 'category', data: labels, axisLabel: { interval: 0, rotate: 28 } },
-        yAxis: { type: 'value', min: 0, max: maxV, name: isWeightedObject ? '权重(0-1)' : '出现(示意)' },
-        series: [{ type: 'bar', data: values, itemStyle: { color: '#9b59b6' } }],
-      }, true)
-    }
+  if (stockThemesBarRef.value) {
+    nextTick(() => {
+      stockThemesBarRef.value.render()
+    })
   }
 }
 
@@ -1341,7 +1306,7 @@ async function openDetail(id) {
       requestAnimationFrame(() => {
         stockMoodPieInst?.resize()
         stockMetricsBarInst?.resize()
-        stockThemesBarInst?.resize()
+        stockThemesBarRef.value?.resize()
       })
       return
     }
@@ -1860,7 +1825,7 @@ onMounted(() => {
               </div>
               <div class="chartGroup">
                 <div class="chartTitle">主要叙事主题 (Themes)</div>
-                <div ref="stockThemesBarEl" class="chart"></div>
+                <StockMetricsBar ref="stockThemesBarRef" :isDark="isDark" :themes="detail?.mainThemes || []" />
                 <div v-if="(detail?.mainThemesContent || '').trim()" class="themeContentBox">
                   <div class="chartTitle">主题解读 (main_themes_content)</div>
                   <pre class="pre themeContentPre">{{ detail.mainThemesContent }}</pre>
