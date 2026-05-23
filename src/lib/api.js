@@ -57,6 +57,18 @@ export function listFinanceIds({ start, end, q, limit } = {}) {
   return request(`/api/news/finance/ids?dummy=1${qs({ start, end, q, limit })}`)
 }
 
+export function listGeneralIds({ start, end, q, limit } = {}) {
+  return request(`/api/news/ids?dummy=1${qs({ start, end, q, limit })}`)
+}
+
+export function listYahooFinanceNewsIds({ start, end, q, limit } = {}) {
+  return request(`/api/yahoo/news/ids?dummy=1${qs({ start, end, q, limit })}`)
+}
+
+export function listNewYorkTimesNewsIds({ start, end, q, limit } = {}) {
+  return request(`/api/nytimes/news/ids?dummy=1${qs({ start, end, q, limit })}`)
+}
+
 export function listStockComments(page = 0, size = 50, { start, end, q } = {}) {
   return request(`/api/comments?page=${page}&size=${size}${qs({ start, end, q })}`)
 }

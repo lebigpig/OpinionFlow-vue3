@@ -76,8 +76,8 @@ const page = ref(1)
 const pageSize = ref(50)
 const timeRange = ref(null)
 const keyword = ref('')
-const financeAllSelectLoading = ref(false)
-const financeAllSelectError = ref('')
+const allSelectLoading = ref(false)
+const allSelectError = ref('')
 
 const selectedMap = ref({})
 const yahooSelectedData = ref({})
@@ -485,30 +485,81 @@ function toggleSelectAllOnPage(checked) {
   selectedMap.value = next
 }
 
-async function selectAllFinanceResults() {
-  if (activeMenu.value !== 'finance') return
-  financeAllSelectLoading.value = true
-  financeAllSelectError.value = ''
-  try {
-    const start = timeRange.value?.[0] || ''
-    const end = timeRange.value?.[1] || ''
-    const q = keyword.value?.trim() || ''
-    const resp = await listFinanceIds({ start, end, q, limit: total.value || 5000 })
-    const ids = resp?.ids || []
-    const truncated = !!resp?.truncated
-    const next = { ...selectedMap.value }
-    for (const id of ids) {
-      next[`finance:${id}`] = true
+const canSelectAllMenu = computed(() => {
+  return activeMenu.value === 'general' || activeMenu.value === 'finance' || activeMenu.value === 'yahoo' || activeMenu.value === 'nytimes'
+})
+
+const currentSourceSelectedCount = computed(() => {
+  return selectedCounts.value[currentSource.value] || 0
+})
+
+function clearSourceSelection(source) {
+  const next = { ...selectedMap.value }
+  for (const k of Object.keys(next)) {
+    if (k.startsWith(`${source}:`)) {
+      delete next[k]
     }
-    selectedMap.value = next
-    if (truncated) {
-      financeAllSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
-    }
-  } catch (e) {
-    financeAllSelectError.value = e?.message || String(e)
-  } finally {
-    financeAllSelectLoading.value = false
   }
+  selectedMap.value = next
+  if (source === 'yahoo') yahooSelectedData.value = {}
+  if (source === 'nytimes') nytimesSelectedData.value = {}
+}
+
+async function selectAllResults() {
+  const source = currentSource.value
+  // 如果已有勾选，则全部取消
+  if (currentSourceSelectedCount.value > 0) {
+    clearSourceSelection(source)
+    return
+  }
+
+  // finance 保持原有的远程全选逻辑（跨分页选中所有）
+  if (source === 'finance') {
+    allSelectLoading.value = true
+    allSelectError.value = ''
+    try {
+      const start = timeRange.value?.[0] || ''
+      const end = timeRange.value?.[1] || ''
+      const q = keyword.value?.trim() || ''
+      const resp = await listFinanceIds({ start, end, q, limit: total.value || 5000 })
+      const ids = resp?.ids || []
+      const truncated = !!resp?.truncated
+      const next = { ...selectedMap.value }
+      for (const id of ids) {
+        next[`finance:${id}`] = true
+      }
+      selectedMap.value = next
+      if (truncated) {
+        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
+        alert(allSelectError.value)
+      }
+    } catch (e) {
+      allSelectError.value = e?.message || String(e)
+    } finally {
+      allSelectLoading.value = false
+    }
+    return
+  }
+
+  // general / yahoo / nytimes：直接选中当前已加载的 items，无需发请求
+  if (source === 'yahoo') {
+    for (const it of items.value) {
+      toggleYahooSelected(it, true)
+    }
+    return
+  }
+  if (source === 'nytimes') {
+    for (const it of items.value) {
+      toggleNytimesSelected(it, true)
+    }
+    return
+  }
+  // general
+  const next = { ...selectedMap.value }
+  for (const it of items.value) {
+    next[`general:${it.id}`] = true
+  }
+  selectedMap.value = next
 }
 
 const aiCustomPrompt = ref('')
@@ -1546,15 +1597,16 @@ onMounted(() => {
               />
             </div>
 
-            <div v-if="activeMenu === 'finance'" class="filterItem">
-              <button class="btn" type="button" @click="selectAllFinanceResults" :disabled="financeAllSelectLoading || loadingList">
-                {{ financeAllSelectLoading ? '全部选中中...' : `全部选中（共${total || 0}条）` }}
+          <div v-if="canSelectAllMenu" class="filterItem">
+              <button class="btn" type="button" @click="selectAllResults" :disabled="allSelectLoading || loadingList">
+                {{ allSelectLoading ? '操作中...' : (currentSourceSelectedCount > 0 ? `全部取消勾选（已选${currentSourceSelectedCount}条）` : `全部选中（共${total || 0}条）`) }}
               </button>
             </div>
           </div>
 
-          <div v-if="activeMenu === 'finance' && financeAllSelectError" class="errorState" style="padding: 12px 0;">
-            {{ financeAllSelectError }}
+          <div v-if="canSelectAllMenu && allSelectError" class="errorState allSelectAlert" style="padding: 12px 0;">
+            <span>{{ allSelectError }}</span>
+            <button class="btn sm" type="button" @click="allSelectError = ''" style="margin-left: 8px;">知道了</button>
           </div>
 
           <!-- 词云分析：reasonBox + 图表在 listCard 顶部 -->
@@ -2548,6 +2600,17 @@ onMounted(() => {
 .wechatBubbleContent {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.allSelectAlert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, #e74c3c 10%, var(--panel-bg));
+  border: 1px solid #e74c3c;
+  border-radius: 10px;
+  margin: 8px 0;
 }
 
 /* 删除按钮 */
