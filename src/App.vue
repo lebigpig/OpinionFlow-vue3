@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
 import StockThemesBar from './charts/StockComment/StockThemesBar.vue'
 import StockMetricsBar from './charts/StockComment/StockMetricsBar.vue'
+import StockMoodPie from './charts/StockComment/StockMoodPie.vue'
 import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
@@ -117,11 +118,9 @@ const chartPreviewTarget = ref('industry')
 const chartPreviewEl = ref(null)
 let chartPreviewInst = null
 
-const stockMoodPieEl = ref(null)
+const stockMoodPieRef = ref(null)
 const stockMetricsBarRef = ref(null)
 const stockThemesBarRef = ref(null)
-let stockMoodPieInst = null
-
 const selectedId = ref(null)
 const loadingDetail = ref(false)
 const detailError = ref('')
@@ -1149,8 +1148,7 @@ watch(industryChartData, async () => {
 })
 
 function disposeStockCommentCharts() {
-  stockMoodPieInst?.dispose()
-  stockMoodPieInst = null
+  stockMoodPieRef.value?.dispose()
   stockMetricsBarRef.value?.dispose()
   stockThemesBarRef.value?.dispose()
 }
@@ -1198,31 +1196,7 @@ function renderStockCommentCharts(d) {
   const x = normalizeStockCommentApi(d)
   if (!x) return
 
-  const moodVal = parseScore0to100(x.mood)
-  if (stockMoodPieEl.value) {
-    if (stockMoodPieInst) {
-      stockMoodPieInst.dispose()
-      stockMoodPieInst = null
-    }
-    stockMoodPieInst = echarts.init(stockMoodPieEl.value, isDark.value ? 'dark' : null)
-    window.addEventListener('resize', () => stockMoodPieInst?.resize())
-    const m = moodVal ?? 50
-    stockMoodPieInst.setOption({
-      backgroundColor: 'transparent',
-      tooltip: { trigger: 'item' },
-      legend: { top: 8, data: ['乐观倾向', '悲观倾向'] },
-      series: [{
-        name: '情绪 mood',
-        type: 'pie',
-        radius: ['38%', '72%'],
-        label: { formatter: '{b}: {c}' },
-        data: [
-          { value: m, name: '乐观倾向', itemStyle: { color: '#ffffff' } },
-          { value: Math.max(0, 100 - m), name: '悲观倾向', itemStyle: { color: '#000000' } },
-        ],
-      }],
-    }, true)
-  }
+  stockMoodPieRef.value?.render()
 
   if (stockMetricsBarRef.value) {
     nextTick(() => {
@@ -1274,7 +1248,7 @@ async function openDetail(id) {
       await nextTick()
       renderStockCommentCharts(detail.value)
       requestAnimationFrame(() => {
-        stockMoodPieInst?.resize()
+        stockMoodPieRef.value?.resize()
         stockMetricsBarRef.value?.resize()
         stockThemesBarRef.value?.resize()
       })
@@ -1787,7 +1761,7 @@ onMounted(() => {
             <div v-if="detail?.kind === 'stock_comment'" class="stockCharts">
               <div class="chartGroup">
                 <div class="chartTitle">情绪分布 (Mood)</div>
-                <div ref="stockMoodPieEl" class="chart small"></div>
+                <StockMoodPie ref="stockMoodPieRef" :is-dark="isDark" :mood="detail?.mood" />
               </div>
               <div class="chartGroup">
                 <div class="chartTitle">核心指标分析</div>
