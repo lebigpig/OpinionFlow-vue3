@@ -1,5 +1,6 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useTheme } from './composables/useTheme'
 import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
@@ -66,12 +67,6 @@ const menuGroups = [
 ]
 
 const activeMenu = ref('general')
-const isDark = ref(localStorage.getItem('theme') === 'dark')
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-}
-
 const loadingList = ref(false)
 const listError = ref('')
 const items = ref([])
@@ -132,6 +127,17 @@ const loadingDetail = ref(false)
 const detailError = ref('')
 const detail = ref(null)
 
+const { isDark, toggleTheme } = useTheme({
+  onThemeChange: () => {
+    if (industryChartData.value) {
+      rebuildIndustryCharts()
+    }
+    if (detail.value && detail.value.kind === 'stock_comment') {
+      renderStockCommentCharts(detail.value)
+    }
+  }
+})
+
 const aiLoading = ref(false)
 const aiError = ref('')
 const aiResult = ref('')
@@ -143,23 +149,6 @@ function scriptKeyFromMenu() {
   if (activeMenu.value === 'script_realtime') return 'realtime'
   return null
 }
-
-watch(isDark, (val) => {
-  const html = document.documentElement
-  if (val) {
-    html.classList.add('dark')
-    localStorage.setItem('theme', 'dark')
-  } else {
-    html.classList.remove('dark')
-    localStorage.setItem('theme', 'light')
-  }
-  if (industryChartData.value) {
-    rebuildIndustryCharts()
-  }
-  if (detail.value && detail.value.kind === 'stock_comment') {
-    renderStockCommentCharts(detail.value)
-  }
-}, { immediate: true })
 
 const activeMenuName = computed(() => {
   for (const g of menuGroups) {
