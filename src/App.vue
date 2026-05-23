@@ -9,8 +9,9 @@ import AppHeader from './components/header/AppHeader.vue'
 import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
 import ScriptPanel from './components/Run Script/ScriptPanel.vue'
 import TimeFilter from './components/Filter/TimeFilter.vue'
+import AICustomAnalysis from './components/AI/AICustomAnalysis.vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews, saveEchartJson, chatMemoryStream, chatMemoryHistory, chatMemoryClear, listChatSessions, createNewSession, deleteChatSession, listEchartFiles, readEchartFile, getEchartDetail } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews } from './lib/api'
 
 function htmlToPlainText(input) {
   const s = String(input ?? '')
@@ -490,220 +491,6 @@ async function selectAllResults() {
     return
   }
 }
-const aiCustomPrompt = ref('')
-const aiCustomLoading = ref(false)
-const aiCustomError = ref('')
-const aiCustomResult = ref('')
-const aiCustomSavedPath = ref('')
-const currentAiChatSessionId = ref('ai_custom')
-const aiCustomHistory = ref([])
-const aiCustomHistoryLoading = ref(false)
-const aiCustomSelectedContent = ref('')
-const selectedAiCustomItem = ref(null)
-const aiChatMessages = ref([])
-const aiChatInput = ref('')
-const aiChatSending = ref(false)
-const aiChatError = ref('')
-const aiChatLoading = ref(false)
-const aiChatContainer = ref(null)
-
-async function loadAiCustomHistory(silent = false) {
-  if (!silent) aiCustomHistoryLoading.value = true
-  try {
-    const sessions = await listChatSessions()
-    aiCustomHistory.value = Array.isArray(sessions) ? sessions : []
-  } catch (e) {
-    console.error('加载 AI 会话历史失败', e)
-  } finally {
-    if (!silent) aiCustomHistoryLoading.value = false
-  }
-}
-
-async function deleteCustomHistory(item) {
-  const sessionId = item.sessionId
-  if (!sessionId) return
-  if (!confirm(`确定要删除该历史回答吗？此操作不可恢复。`)) return
-  try {
-    await deleteChatSession(sessionId)
-    aiCustomHistory.value = aiCustomHistory.value.filter(h => h.sessionId !== sessionId)
-    if (selectedAiCustomItem.value && selectedAiCustomItem.value.sessionId === sessionId) {
-      selectedAiCustomItem.value = null
-      aiChatMessages.value = []
-      currentAiChatSessionId.value = ''
-    }
-  } catch (e) {
-    console.error('删除会话失败', e)
-    alert(`删除失败：${e.message}`)
-  }
-}
-
-async function runAiCustom() {
-  aiCustomLoading.value = true
-  aiCustomError.value = ''
-  aiCustomResult.value = ''
-  aiCustomSavedPath.value = ''
-  selectedAiCustomItem.value = null
-
-  try {
-    const keys = Object.keys(selectedMap.value)
-    if (keys.length === 0) {
-      throw new Error('请先在新闻列表中勾选条目（可用本页全选）')
-    }
-
-    const articles = []
-    for (const k of keys) {
-      const [source, idStr] = k.split(':')
-      if (source === 'yahoo') {
-        const idKey = String(idStr)
-        const y = yahooSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
-        if (!y) continue
-        const title = (y.title || '').trim()
-        const displayTime = (y.displayTime || '').trim()
-        const summary = (y.summary || '').trim()
-        const content = [
-          `publishTime：${displayTime}`,
-          `summary：`,
-          summary,
-        ].filter(Boolean).join('\n')
-        if (!title && !content.trim()) continue
-        articles.push({ title, content })
-        continue
-      }
-      if (source === 'nytimes') {
-        const idKey = String(idStr)
-        const n = nytimesSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
-        if (!n) continue
-        const title = (n.title || '').trim()
-        const displayTime = (n.displayTime || '').trim()
-        const summary = (n.summary || '').trim()
-        const content = [
-          `publishTime：${displayTime}`,
-          `summary：`,
-          summary,
-        ].filter(Boolean).join('\n')
-        if (!title && !content.trim()) continue
-        articles.push({ title, content })
-        continue
-      }
-
-      const id = Number(idStr)
-      if (!Number.isFinite(id)) continue
-      const detail = source === 'finance'
-        ? await getFinanceDetail(id)
-        : await getNewsDetail(id)
-      articles.push({
-        title: detail?.title || '',
-        content: detail?.content || '',
-      })
-    }
-
-    if (!articles.length) {
-      throw new Error('已勾选条目未能生成有效内容（可能跨分页/刷新后丢失了列表数据）')
-    }
-
-    const userContent = articles.map((a, idx) => {
-      const t = (a.title || '').trim()
-      const c = (a.content || '').trim()
-      return `【${idx + 1}】标题：${t}\n内容：\n${c}`
-    }).join('\n\n')
-
-    aiCustomSelectedContent.value = userContent
-
-    const prompt = (aiCustomPrompt.value || '').trim()
-    const fullContent = prompt
-      ? `${prompt}\n\n---\n以下是选中的新闻内容：\n\n${userContent}`
-      : userContent
-
-    const sessionResp = await createNewSession()
-    const newSessionId = sessionResp?.sessionId || 'default'
-    currentAiChatSessionId.value = newSessionId
-
-    await chatMemoryStream(fullContent, {
-      sessionId: newSessionId,
-      selectedContent: aiCustomSelectedContent.value || undefined,
-      onDelta: (delta) => {
-        aiCustomResult.value += delta
-      },
-    })
-
-    await loadAiCustomHistory()
-  } catch (e) {
-    aiCustomError.value = e?.message || String(e)
-  } finally {
-    aiCustomLoading.value = false
-  }
-}
-
-async function loadAiCustomHistoryItem(item) {
-  aiChatLoading.value = true
-  aiChatMessages.value = []
-  try {
-    selectedAiCustomItem.value = item
-    const resp = await chatMemoryHistory(item.sessionId)
-    const messages = resp?.messages || []
-    aiChatMessages.value = messages
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
-    aiCustomResult.value = lastAssistant?.content || ''
-    aiCustomSavedPath.value = ''
-    currentAiChatSessionId.value = item.sessionId
-    aiCustomError.value = ''
-    await nextTick()
-    if (aiChatContainer.value) {
-      aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
-    }
-  } catch (e) {
-    aiCustomError.value = `加载历史失败：${e?.message || String(e)}`
-  } finally {
-    aiChatLoading.value = false
-  }
-}
-
-async function sendAiChatMessage() {
-  const msg = (aiChatInput.value || '').trim()
-  if (!msg || aiChatSending.value) return
-  aiChatInput.value = ''
-  aiChatError.value = ''
-  aiChatSending.value = true
-
-  aiChatMessages.value.push({ role: 'user', content: msg })
-  const assistantIdx = aiChatMessages.value.length
-  aiChatMessages.value.push({ role: 'assistant', content: '' })
-
-  try {
-    let reply = ''
-    const chatSessionId = currentAiChatSessionId.value || 'ai_custom'
-    await chatMemoryStream(msg, {
-      sessionId: chatSessionId,
-      selectedContent: aiCustomSelectedContent.value || undefined,
-      onDelta: (delta) => {
-        reply += delta
-        aiChatMessages.value[assistantIdx].content = reply
-        nextTick(() => {
-          if (aiChatContainer.value) {
-            aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
-          }
-        })
-      },
-    })
-
-    loadAiCustomHistory(true).catch(() => {})
-  } catch (e) {
-    aiChatError.value = e?.message || String(e)
-  } finally {
-    aiChatSending.value = false
-  }
-}
-
-async function clearAiChatMemory() {
-  try {
-    const chatSessionId = currentAiChatSessionId.value || 'ai_custom'
-    await chatMemoryClear(chatSessionId)
-    aiChatMessages.value = []
-    aiChatError.value = ''
-  } catch (e) {
-    aiChatError.value = e?.message || String(e)
-  }
-}
 
 const yahooAiLoading = ref(false)
 const yahooAiError = ref('')
@@ -1115,15 +902,6 @@ watch(activeMenu, () => {
   page.value = 1
   timeRange.value = null
   keyword.value = ''
-  if (activeMenu.value === 'ai_custom') {
-    aiCustomResult.value = ''
-    aiCustomSavedPath.value = ''
-    aiCustomError.value = ''
-    selectedAiCustomItem.value = null
-    aiChatError.value = ''
-    loadAiCustomHistory()
-    return
-  }
   if (activeMenu.value === 'industry') {
     // echart 历史列表已迁移至 Industryanalyse.vue 自行加载
   } else if (!scriptKeyFromMenu()) {
@@ -1162,6 +940,18 @@ onMounted(() => {
         :activeMenuName="activeMenuName"
       />
 
+      <!-- AI分析 菜单：整块替换为 AICustomAnalysis 组件（内含左右两栏） -->
+      <template v-else-if="activeMenu === 'ai_custom'">
+        <AICustomAnalysis
+          :selectedCounts="selectedCounts"
+          :selectedMap="selectedMap"
+          :items="items"
+          :yahooSelectedData="yahooSelectedData"
+          :nytimesSelectedData="nytimesSelectedData"
+        />
+      </template>
+
+      <!-- 其他菜单：正常两栏布局 -->
       <template v-else>
       <div class="card listCard">
         <div class="cardHeader" v-if="activeMenu !== 'industry'">
@@ -1169,7 +959,7 @@ onMounted(() => {
           <div class="muted" v-if="total">共 {{ total }} 条</div>
         </div>
         <div class="cardBody">
-          <div class="filterBar" v-show="activeMenu !== 'ai_custom' && activeMenu !== 'industry'">
+          <div class="filterBar" v-show="activeMenu !== 'industry'">
             <TimeFilter
               v-model="timeRange"
               @change="() => { page = 1; loadList() }"
@@ -1231,67 +1021,6 @@ onMounted(() => {
             </div>
             <div v-if="!industryChartData" class="emptyState">请在右侧详情面板中选择新闻后点击"开始分析"</div>
           </template>
-
-          <!-- AI分析 菜单：微信风格聊天界面 -->
-          <div v-else-if="activeMenu === 'ai_custom'" class="chatPanel">
-            <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
-            <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
-
-            <div v-show="selectedAiCustomItem" class="chatPanelInner">
-              <div class="chatPanelHeader">
-                <div class="chatPanelTitle">{{ selectedAiCustomItem?.preview || selectedAiCustomItem?.sessionId }}</div>
-                <button class="btn sm" type="button" @click="loadAiCustomHistory(true)" :disabled="aiCustomHistoryLoading">
-                  {{ aiCustomHistoryLoading ? '加载中...' : '刷新列表' }}
-                </button>
-              </div>
-              <div v-if="aiChatLoading" class="loadingState" style="padding:20px 0;">
-                <div class="spinner"></div>
-                <div class="muted">加载对话历史中...</div>
-              </div>
-              <div v-else-if="!aiChatMessages.length" class="emptyState sm">暂无对话记录</div>
-              <div v-else ref="aiChatContainer" class="wechatChatContainer">
-                <div
-                  v-for="(msg, idx) in aiChatMessages"
-                  :key="idx"
-                  class="wechatMsgRow"
-                  :class="msg.role"
-                >
-                  <template v-if="msg.role === 'assistant'">
-                    <div class="wechatAvatar assistantAvatar">🤖</div>
-                    <div class="wechatBubble assistantBubble">
-                      <div class="wechatBubbleContent">{{ msg.content }}</div>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="wechatBubble userBubble">
-                      <div class="wechatBubbleContent">{{ msg.content }}</div>
-                    </div>
-                    <div class="wechatAvatar userAvatar">👤</div>
-                  </template>
-                </div>
-              </div>
-              <div class="aiChatInputBox">
-                <el-input
-                  v-model="aiChatInput"
-                  type="textarea"
-                  :rows="2"
-                  placeholder="输入追问内容，AI 会基于之前的记忆回答..."
-                  clearable
-                  @keyup.ctrl.enter="sendAiChatMessage"
-                />
-                <div class="actionGroup" style="margin:8px 0 0;">
-                  <button class="btn primary" type="button" @click="sendAiChatMessage" :disabled="aiChatSending || !aiChatInput.trim()">
-                    {{ aiChatSending ? '发送中...' : '追问 AI' }}
-                  </button>
-                  <span class="muted" style="font-size:12px;">Ctrl+Enter 发送</span>
-                </div>
-              </div>
-              <div v-if="aiCustomHistoryLoading" class="chatLoadingOverlay">
-                <div class="spinner"></div>
-                <div class="muted">正在刷新会话列表...</div>
-              </div>
-            </div>
-          </div>
 
           <!-- 其他菜单：正常列表 -->
           <template v-else>
@@ -1388,60 +1117,7 @@ onMounted(() => {
             />
           </div>
 
-          <div v-else-if="activeMenu === 'ai_custom'">
-            <div class="muted">输入自定义 Prompt，结合已勾选的新闻内容发送给 AI 分析（支持记忆化多轮对话）。</div>
-            <div class="selectedHint">
-              <span class="badge">已勾选 {{ selectedCounts.total }} 条</span>
-              <span class="muted" v-if="selectedCounts.total">
-                （网易 {{ selectedCounts.general }} / 财经 {{ selectedCounts.finance }} / 雅虎 {{ selectedCounts.yahoo }} / 纽约时报 {{ selectedCounts.nytimes }}）
-              </span>
-            </div>
-            <div class="scriptForm">
-              <div class="muted" style="font-weight: 700;">自定义 Prompt</div>
-              <el-input
-                v-model="aiCustomPrompt"
-                type="textarea"
-                :rows="3"
-                placeholder="请输入你的分析需求，例如：请分析这些新闻中关于新能源行业的趋势..."
-                clearable
-              />
-            </div>
-            <div class="actionGroup">
-              <button class="btn primary" type="button" @click="runAiCustom" :disabled="aiCustomLoading">发送给 AI 分析</button>
-              <button class="btn" type="button" @click="clearAiChatMemory">清除记忆</button>
-            </div>
-
-            <div v-if="aiCustomLoading" class="aiProgress">
-              <div class="spinner sm"></div>
-              <span>流式分析中... ({{ aiCustomResult.length }} 字符)</span>
-            </div>
-
-            <div v-if="aiCustomError" class="errorState">{{ aiCustomError }}</div>
-
-            <div v-if="aiCustomHistory.length" class="historyBox">
-              <div class="chartTitle">历史回答（MySQL chat_history）</div>
-              <div class="historyList">
-                <button
-                  v-for="h in aiCustomHistory"
-                  :key="h.sessionId"
-                  class="historyItem"
-                  @click="loadAiCustomHistoryItem(h)"
-                  type="button"
-                >
-                  <div class="historyItemMain">
-                    <span class="mono">{{ h.preview || h.sessionId }}</span>
-                    <span class="muted" style="font-size:11px;">{{ h.messageCount }} 条消息</span>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:6px;">
-                    <span class="muted">加载</span>
-                    <button class="btn-delete-item" @click.stop="deleteCustomHistory(h)" title="删除该会话">✕</button>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div v-else-if="activeMenu === 'yahoo'">
+          <div v-if="activeMenu === 'yahoo'">
             <div class="muted">勾选雅虎新闻后发送给 AI 分析。</div>
             <div class="actionGroup">
               <button class="btn primary" @click="runYahooAi" :disabled="yahooAiLoading">发送到 AI</button>
@@ -1877,174 +1553,6 @@ onMounted(() => {
 .chartPreviewCanvas{
   width: 100%;
   height: 100%;
-}
-
-/* LangChain4j 记忆化对话 */
-.aiChatBox {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 400px;
-  overflow: auto;
-  padding-right: 6px;
-}
-.chatMsg {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color-light);
-}
-.chatMsg.user {
-  background: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-  border-color: var(--primary-color);
-}
-.chatMsg.assistant {
-  background: var(--panel-bg);
-}
-.chatRole {
-  font-weight: 700;
-  font-size: 12px;
-  margin-bottom: 6px;
-  color: var(--text-secondary);
-}
-.chatContent {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13px;
-}
-.aiChatInputBox {
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-}
-
-/* 微信风格聊天面板 */
-.chatPanel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 300px;
-}
-.chatPanelHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color-light);
-  margin-bottom: 8px;
-}
-.chatPanelTitle {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-}
-
-/* 聊天面板内部容器（v-show 保持 DOM 存在） */
-.chatPanelInner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  position: relative;
-}
-
-/* loading 覆盖层：绝对定位浮在聊天内容上方，不销毁底层 DOM */
-.chatLoadingOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(2px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  border-radius: 12px;
-}
-
-/* 微信风格消息容器 */
-.wechatChatContainer {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: transparent;
-}
-
-/* 每条消息行 */
-.wechatMsgRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: 100%;
-}
-.wechatMsgRow.user {
-  flex-direction: row;
-  justify-content: flex-end;
-}
-.wechatMsgRow.assistant {
-  flex-direction: row;
-  justify-content: flex-start;
-}
-
-/* 头像 */
-.wechatAvatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.assistantAvatar {
-  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
-}
-.userAvatar {
-  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
-}
-
-/* 气泡 */
-.wechatBubble {
-  max-width: 72%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  position: relative;
-  word-break: break-word;
-  line-height: 1.6;
-  font-size: 13px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-}
-.assistantBubble {
-  background: var(--panel-bg);
-  border: 1px solid var(--border-color-light);
-  border-top-left-radius: 4px;
-}
-.userBubble {
-  background: color-mix(in srgb, var(--primary-color) 88%, #fff);
-  color: #fff;
-  border-top-right-radius: 4px;
-}
-/* 深色模式下用户气泡保持可读 */
-:global(.dark) .userBubble {
-  background: color-mix(in srgb, var(--primary-color) 70%, #333);
-}
-
-.wechatBubbleContent {
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .allSelectAlert {
