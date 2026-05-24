@@ -898,10 +898,13 @@ async function runAi() {
   }
 }
 
-watch(activeMenu, () => {
+watch(activeMenu, (newVal, oldVal) => {
   page.value = 1
   timeRange.value = null
   keyword.value = ''
+   if (oldVal === 'industry' && newVal !== 'industry') {
+    industryChartData.value = null
+  }
   if (activeMenu.value === 'industry') {
     // echart 历史列表已迁移至 Industryanalyse.vue 自行加载
   } else if (!scriptKeyFromMenu()) {
