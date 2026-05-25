@@ -1,0 +1,15 @@
+.mainContent {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 20px;
+}
+.filterBar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: var(--panel-bg-2);
+    border-radius: 12px;
+}

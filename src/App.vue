@@ -12,25 +12,8 @@ import TimeFilter from './components/Filter/TimeFilter.vue'
 import AICustomAnalysis from './components/AI/AICustomAnalysis.vue'
 import * as echarts from 'echarts'
 import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews } from './lib/api'
+import htmlToPlainText from "@/moudle/htmlToPlainText.js";
 
-function htmlToPlainText(input) {
-  const s = String(input ?? '')
-  if (!s) return ''
-  if (!/[<>]/.test(s)) return s
-  const withNewlines = s
-    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-    .replace(/<\s*\/p\s*>/gi, '\n')
-    .replace(/<\s*p(\s+[^>]*)?>/gi, '')
-    .replace(/<\s*\/div\s*>/gi, '\n')
-    .replace(/<\s*div(\s+[^>]*)?>/gi, '')
-  const el = document.createElement('div')
-  el.innerHTML = withNewlines
-  const text = (el.textContent || el.innerText || '').replace(/\u00a0/g, ' ')
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
 
 const menuGroups = [
   {
@@ -1236,11 +1219,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.mainContent {
-  display: grid;
-  grid-template-columns: 1fr 400px;
-  gap: 20px;
-}
+
 @media (max-width: 1200px) {
   .mainContent {
     grid-template-columns: 1fr;
@@ -1271,16 +1250,7 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.filterBar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 12px;
-}
+
 .filterItem {
   display: flex;
   align-items: center;
