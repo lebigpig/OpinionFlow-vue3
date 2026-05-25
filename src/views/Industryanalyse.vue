@@ -1,4 +1,5 @@
 <template>
+  <div class="cardBody">
   <div>
     <div class="muted">勾选新闻后点击下方按钮生成行业风险/机会分析。</div>
     <div class="selectedHint">
@@ -72,6 +73,7 @@
     <div v-if="industryAiRaw" class="reasonBox">
       <div class="chartTitle">AI 原始输出（JSON）</div>
       <pre class="pre">{{ industryAiRaw }}</pre>
+    </div>
     </div>
   </div>
 </template>
