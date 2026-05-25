@@ -1,19 +1,33 @@
 <script setup>
-
 import TimeFilter from "@/components/Filter/TimeFilter.vue";
-import Industryanalyse from "@/views/Industryanalyse.vue";
-import ScriptPanel from "@/components/Run Script/ScriptPanel.vue";
-import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
+import { useNewsStore } from '@/stores/NewsStore'
+import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
+const newsStore = useNewsStore()
+const {
+  timeRange, keyword, total, items, page, pageSize,
+  loadingList, listError, activeMenu, currentSource,
+  pageAllSelected, canSelectAllMenu, allSelectLoading,
+  currentSourceSelectedCount, allSelectError
+} = storeToRefs(newsStore)
+const {
+  loadList, isSelectableMenu, isSelected, toggleSelected,
+  toggleSelectAllOnPage, selectAllResults
+} = newsStore
 
+function openUrl(url) {
+  if (url) window.open(url, '_blank')
+}
+function openDetail(id) {
+  router.push({ name: 'NewsDetail', params: { id } })
+}
 </script>
 
 <template>
   <main class="mainContent">
-    <!-- AI分析 菜单：整块替换为 AICustomAnalysis 组件（内含左右两栏） -->
-    <!-- 其他菜单：正常两栏布局 -->
-    <template>
-      <div class="card listCard">
+    <div class="card listCard">
         <div class="cardHeader">
           <div style="font-weight:700; font-size: 16px;">列表</div>
           <div class="muted" v-if="total">共 {{ total }} 条</div>
@@ -59,8 +73,7 @@ import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
             <button class="btn sm" type="button" @click="allSelectError = ''" style="margin-left: 8px;">知道了</button>
           </div>
 
-          <!-- 其他菜单：正常列表 -->
-          <template>
+          <!-- 列表 -->
             <div v-if="loadingList" class="loadingState">
               <div class="spinner"></div>
               <div class="muted">正在加载数据...</div>
@@ -75,7 +88,6 @@ import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
                   class="listItem"
                   @click="(activeMenu === 'yahoo' || activeMenu === 'nytimes') ? openUrl(it.articleUrl) : openDetail(it.id)"
               >
-
                 <div class="generalItem">
                   <el-checkbox
                       :model-value="isSelected(currentSource, it.id)"
@@ -85,10 +97,7 @@ import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
                   <div class="itemMain">
                     <div class="listItemTitle">{{ it.title || '(无标题)' }}</div>
                     <div class="muted">
-
-                      <template>
                         {{ it.publishTime || '' }}
-                      </template>
                     </div>
                   </div>
                 </div>
@@ -106,7 +115,6 @@ import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
                   @current-change="loadList"
               />
             </div>
-          </template>
         </div>
       </div>
 
@@ -121,7 +129,6 @@ import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
           </div>
         </div>
       </div>
-    </template>
   </main>
 </template>
 

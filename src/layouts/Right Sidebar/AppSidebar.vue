@@ -5,7 +5,7 @@ const props = defineProps({
   activeMenu: { type: String, required: true },
 })
 
-const emit = defineEmits(['toggleGroup', 'selectMenu'])
+const emit = defineEmits(['toggleGroup'])
 </script>
 
 <template>
@@ -19,15 +19,15 @@ const emit = defineEmits(['toggleGroup', 'selectMenu'])
 
         <transition name="menu-fade">
           <div v-if="groupOpen[g.key]" class="menuGroupContent">
-            <button
+            <router-link
               v-for="m in g.children"
               :key="m.key"
+              :to="m.to"
               class="menuItem"
               :class="{ active: activeMenu === m.key }"
-              @click="emit('selectMenu', m.key)"
             >
               {{ m.name }}
-            </button>
+            </router-link>
           </div>
         </transition>
       </div>
@@ -63,6 +63,11 @@ const emit = defineEmits(['toggleGroup', 'selectMenu'])
 }
 .arrow.rotated {
   transform: rotate(-90deg);
+}
+
+.menuItem {
+  display: block;
+  text-decoration: none;
 }
 
 .menu-fade-enter-active, .menu-fade-leave-active { transition: all 0.3s ease; max-height: 500px; overflow: hidden; }

@@ -2,8 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   listGeneral, listGeneralIds,
-  listFinanceIds,
+  listFinance, listFinanceIds,
   listYahooFinanceNews, listYahooIds,
+  listNewYorkTimesNews, listDeepseekMenu, listStockComments,
 } from '../lib/api'
 
 export const useNewsStore = defineStore('news', () => {
@@ -67,6 +68,59 @@ export const useNewsStore = defineStore('news', () => {
   const currentSourceSelectedCount = computed(() => {
     return selectedCounts.value[currentSource.value] || 0
   })
+
+  // ─── loadList 方法 ───────────────────────────────────
+  async function loadList() {
+    if (activeMenu.value === 'industry') return
+    if (activeMenu.value === 'ai_custom') return
+    // scripts 页面不需要加载列表
+    if (activeMenu.value === 'scripts' || activeMenu.value === 'script_all' ||
+        activeMenu.value === 'script_comments' || activeMenu.value === 'script_news' ||
+        activeMenu.value === 'script_realtime') return
+
+    loadingList.value = true
+    listError.value = ''
+    items.value = []
+    total.value = 0
+
+    try {
+      const p0 = Math.max(0, (page.value || 1) - 1)
+      const size = pageSize.value || 50
+      const start = timeRange.value?.[0] || ''
+      const end = timeRange.value?.[1] || ''
+      const q = keyword.value?.trim() || ''
+      const resp = activeMenu.value === 'yahoo'
+          ? await listYahooFinanceNews(p0, size, { start, end, q })
+          : activeMenu.value === 'nytimes'
+              ? await listNewYorkTimesNews(p0, size, { start, end, q })
+              : activeMenu.value === 'comments'
+                  ? await listStockComments(p0, size, { start, end, q })
+                  : activeMenu.value === 'deepseek'
+                      ? await listDeepseekMenu(p0, size, { start, end, q })
+                      : activeMenu.value === 'finance'
+                          ? await listFinance(p0, size, { start, end, q })
+                          : await listGeneral(p0, size, { start, end, q })
+
+      const rows = resp?.content || resp?.list || []
+      items.value = activeMenu.value === 'comments'
+          ? rows.map(r => ({
+            id: r.id,
+            title: r.stockCode,
+            publishTime: r.analysisTime,
+            commentTotal: r.totalCommentsAnalyzed,
+          }))
+          : rows.map(r => ({
+            ...r,
+            publishTime: r.publishTime || r.time || '',
+            summary: activeMenu.value === 'finance' ? (r.summary || r.content || '') : r.summary,
+          }))
+      total.value = resp?.totalElements || resp?.total || 0
+    } catch (e) {
+      listError.value = e?.message || String(e)
+    } finally {
+      loadingList.value = false
+    }
+  }
 
   // ─── 选中操作方法 ───────────────────────────────────
   function isSelected(source, id) {
@@ -304,6 +358,7 @@ export const useNewsStore = defineStore('news', () => {
     currentSourceSelectedCount,
 
     // 方法
+    loadList,
     selectionKey,
     isSelectableMenu,
     isSelected,

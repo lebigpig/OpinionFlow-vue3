@@ -1,9 +1,23 @@
 <script setup>
-
+import { useNewsStore } from '@/stores/NewsStore'
+import { storeToRefs } from 'pinia'
 import TimeFilter from "@/components/Filter/TimeFilter.vue";
-import Industryanalyse from "@/views/Industryanalyse.vue";
-import ScriptPanel from "@/components/Run Script/ScriptPanel.vue";
-import AICustomAnalysis from "@/views/AICustomAnalysis.vue";
+
+const store = useNewsStore()
+const {
+  total, items, timeRange, keyword, page, pageSize,
+  pageAllSelected, allSelectLoading, allSelectError,
+  loadingList, listError, canSelectAllMenu,
+  currentSourceSelectedCount, currentSource,
+  activeMenu,
+} = storeToRefs(store)
+const {
+  loadList, toggleSelectAllOnPage, selectAllResults,
+  isSelected, toggleSelected, toggleYahooSelected, toggleNytimesSelected,
+} = store
+
+const openUrl = (url) => { if (url) window.open(url, '_blank') }
+const openDetail = (id) => { /* placeholder */ }
 </script>
 
 <template>
