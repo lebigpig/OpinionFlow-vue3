@@ -1,19 +1,33 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
-import StockThemesBar from './charts/StockComment/StockThemesBar.vue'
-import StockMetricsBar from './charts/StockComment/StockMetricsBar.vue'
-import Industryanalyse from './views/Industryanalyse.vue'
-import StockMoodPie from './charts/StockComment/StockMoodPie.vue'
-import AppHeader from './components/header/AppHeader.vue'
-import AppSidebar from './components/Right Sidebar/AppSidebar.vue'
-import ScriptPanel from './components/Run Script/ScriptPanel.vue'
-import TimeFilter from './components/Filter/TimeFilter.vue'
-import AICustomAnalysis from './components/AI/AICustomAnalysis.vue'
+import StockThemesBar from '@/charts/StockComment/StockThemesBar.vue'
+import StockMetricsBar from '@/charts/StockComment/StockMetricsBar.vue'
+import Industryanalyse from '@/views/Industryanalyse.vue'
+import StockMoodPie from '@/charts/StockComment/StockMoodPie.vue'
+import AppHeader from '@/layouts/header/AppHeader.vue'
+import AppSidebar from '@/layouts/Right Sidebar/AppSidebar.vue'
+import ScriptPanel from '@/components/Run Script/ScriptPanel.vue'
+import TimeFilter from '@/components/Filter/TimeFilter.vue'
+import AICustomAnalysis from '@/views/AICustomAnalysis.vue'
 import * as echarts from 'echarts'
-import { aiParseStream, getFinanceDetail, getNewsDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, getStockCommentDetail, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews } from './lib/api'
+import { aiParseStream, getFinanceDetail, getNewsDetail, getStockCommentDetail, listDeepseekMenu, listFinance, listFinanceIds, listGeneral, listGeneralIds, listStockComments, listYahooFinanceNews, listYahooIds, listNewYorkTimesNews } from './lib/api'
 import htmlToPlainText from "@/moudle/htmlToPlainText.js";
+import MainLayout from "@/layouts/MainLayout.vue";
+import { useNewsStore } from './stores/NewsStore'
+import { storeToRefs } from 'pinia'
 
+const newsStore = useNewsStore()
+const { selectedMap, bulkSelectedArticles, yahooSelectedData, nytimesSelectedData, items, activeMenu, loadingList, listError, total, page, pageSize, timeRange, keyword, allSelectLoading, allSelectError, selectedCounts, currentSource, pageAllSelected, canSelectAllMenu, currentSourceSelectedCount } = storeToRefs(newsStore)
+const { selectionKey, isSelectableMenu, isSelected, toggleSelected, toggleYahooSelected, toggleNytimesSelected, toggleSelectAllOnPage, clearSourceSelection, selectAllResults } = newsStore
+
+function scriptKeyFromMenu() {
+  if (activeMenu.value === 'script_all') return 'all'
+  if (activeMenu.value === 'script_comments') return 'comments'
+  if (activeMenu.value === 'script_news') return 'news'
+  if (activeMenu.value === 'script_realtime') return 'realtime'
+  return null
+}
 
 const menuGroups = [
   {
@@ -54,23 +68,6 @@ const menuGroups = [
   }
 ]
 
-const activeMenu = ref('general')
-const loadingList = ref(false)
-const listError = ref('')
-const items = ref([])
-const total = ref(0)
-const page = ref(1)
-const pageSize = ref(50)
-const timeRange = ref(null)
-const keyword = ref('')
-const allSelectLoading = ref(false)
-const allSelectError = ref('')
-
-const selectedMap = ref({})
-const yahooSelectedData = ref({})
-const nytimesSelectedData = ref({})
-// 存储通过"全部选中"从后端获取的全部文章（title+content），key 为 "source:id"
-const bulkSelectedArticles = ref({})
 const industryChartData = ref(null)
 // industry 相关变量和方法已迁移至 views/Industryanalyse.vue
 const chartEl = ref(null)
@@ -109,31 +106,12 @@ const aiLoading = ref(false)
 const aiError = ref('')
 const aiResult = ref('')
 
-function scriptKeyFromMenu() {
-  if (activeMenu.value === 'script_all') return 'all'
-  if (activeMenu.value === 'script_comments') return 'comments'
-  if (activeMenu.value === 'script_news') return 'news'
-  if (activeMenu.value === 'script_realtime') return 'realtime'
-  return null
-}
-
 const activeMenuName = computed(() => {
   for (const g of menuGroups) {
     const hit = g.children.find(c => c.key === activeMenu.value)
     if (hit) return hit.name
   }
   return ''
-})
-
-const selectedCounts = computed(() => {
-  const keys = Object.keys(selectedMap.value || {})
-  const bySource = { general: 0, finance: 0, yahoo: 0, nytimes: 0, total: 0 }
-  for (const k of keys) {
-    const source = String(k.split(':')[0] || '')
-    if (source in bySource) bySource[source]++
-    bySource.total++
-  }
-  return bySource
 })
 
 const groupOpen = ref({ news: true, realtime: true, analysis: true })
@@ -203,276 +181,6 @@ function openUrl(url) {
   const u = (url || '').trim()
   if (!u) return
   window.open(u, '_blank', 'noopener,noreferrer')
-}
-
-function selectionKey(source, id) {
-  return `${source}:${id}`
-}
-
-function isSelectableMenu() {
-  return activeMenu.value === 'general' || activeMenu.value === 'finance' || activeMenu.value === 'yahoo' || activeMenu.value === 'nytimes'
-}
-
-function isSelected(source, id) {
-  return !!selectedMap.value[selectionKey(source, id)]
-}
-
-function toggleSelected(source, id, checked) {
-  const k = selectionKey(source, id)
-  const next = { ...selectedMap.value }
-  if (checked) next[k] = true
-  else delete next[k]
-  selectedMap.value = next
-}
-
-function toggleYahooSelected(it, checked) {
-  const id = String(it?.id ?? '')
-  if (!id) return
-  toggleSelected('yahoo', id, checked)
-  const next = { ...yahooSelectedData.value }
-  if (checked) {
-    next[id] = {
-      title: it?.title || '',
-      displayTime: it?.displayTime || '',
-      summary: it?.summary || '',
-    }
-  } else {
-    delete next[id]
-  }
-  yahooSelectedData.value = next
-}
-
-function toggleNytimesSelected(it, checked) {
-  const id = String(it?.id ?? '')
-  if (!id) return
-  toggleSelected('nytimes', id, checked)
-  const next = { ...nytimesSelectedData.value }
-  if (checked) {
-    next[id] = {
-      title: it?.title || '',
-      displayTime: it?.displayTime || '',
-      summary: it?.summary || '',
-    }
-  } else {
-    delete next[id]
-  }
-  nytimesSelectedData.value = next
-}
-
-const currentSource = computed(() => {
-  if (activeMenu.value === 'finance') return 'finance'
-  if (activeMenu.value === 'yahoo') return 'yahoo'
-  if (activeMenu.value === 'nytimes') return 'nytimes'
-  return 'general'
-})
-const pageAllSelected = computed(() => {
-  if (!isSelectableMenu()) return false
-  if (!items.value?.length) return false
-  return items.value.every(it => isSelected(currentSource.value, it.id))
-})
-
-function toggleSelectAllOnPage(checked) {
-  if (!isSelectableMenu()) return
-  const source = currentSource.value
-  if (source === 'yahoo') {
-    for (const it of items.value) {
-      toggleYahooSelected(it, checked)
-    }
-    return
-  }
-  if (source === 'nytimes') {
-    for (const it of items.value) {
-      toggleNytimesSelected(it, checked)
-    }
-    return
-  }
-
-  const next = { ...selectedMap.value }
-  for (const it of items.value) {
-    const k = selectionKey(source, it.id)
-    if (checked) next[k] = true
-    else delete next[k]
-  }
-  selectedMap.value = next
-}
-
-const canSelectAllMenu = computed(() => {
-  return activeMenu.value === 'general' || activeMenu.value === 'finance' || activeMenu.value === 'yahoo' || activeMenu.value === 'nytimes'
-})
-
-const currentSourceSelectedCount = computed(() => {
-  return selectedCounts.value[currentSource.value] || 0
-})
-
-function clearSourceSelection(source) {
-  const next = { ...selectedMap.value }
-  for (const k of Object.keys(next)) {
-    if (k.startsWith(`${source}:`)) {
-      delete next[k]
-    }
-  }
-  selectedMap.value = next
-  if (source === 'yahoo') yahooSelectedData.value = {}
-  if (source === 'nytimes') nytimesSelectedData.value = {}
-}
-
-async function selectAllResults() {
-  const source = currentSource.value
-  // 如果已有勾选，则全部取消
-  if (currentSourceSelectedCount.value > 0) {
-    clearSourceSelection(source)
-    // 同时清除该 source 的批量文章缓存
-    const nextBulk = { ...bulkSelectedArticles.value }
-    for (const k of Object.keys(nextBulk)) {
-      if (k.startsWith(`${source}:`)) delete nextBulk[k]
-    }
-    bulkSelectedArticles.value = nextBulk
-    return
-  }
-
-  // finance 保持原有的远程全选逻辑（跨分页选中所有）
-  if (source === 'finance') {
-    allSelectLoading.value = true
-    allSelectError.value = ''
-    try {
-      const start = timeRange.value?.[0] || ''
-      const end = timeRange.value?.[1] || ''
-      const q = keyword.value?.trim() || ''
-      const resp = await listFinanceIds({ start, end, q, limit: total.value || 5000 })
-      const ids = resp?.ids || []
-      const truncated = !!resp?.truncated
-      const next = { ...selectedMap.value }
-      for (const id of ids) {
-        next[`finance:${id}`] = true
-      }
-      selectedMap.value = next
-      if (truncated) {
-        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
-        alert(allSelectError.value)
-      }
-    } catch (e) {
-      allSelectError.value = e?.message || String(e)
-    } finally {
-      allSelectLoading.value = false
-    }
-    return
-  }
-
-  // general：远程获取全部 ID（无分页限制），并存储文章数据
-  if (source === 'general') {
-    allSelectLoading.value = true
-    allSelectError.value = ''
-    try {
-      const start = timeRange.value?.[0] || ''
-      const end = timeRange.value?.[1] || ''
-      const q = keyword.value?.trim() || ''
-      const resp = await listGeneralIds({ start, end, q, limit: total.value || 50000 })
-      const ids = resp?.ids || []
-      const truncated = !!resp?.truncated
-      const next = { ...selectedMap.value }
-      for (const id of ids) {
-        next[`general:${id}`] = true
-      }
-      selectedMap.value = next
-      // 获取全部列表数据以存储 title/content 等信息
-      try {
-        const fetchSize = ids.length || (total.value || 50000)
-        const listResp = await listGeneral(0, fetchSize, { start, end, q })
-        const rows = listResp?.content || listResp?.list || []
-        const nextBulk = { ...bulkSelectedArticles.value }
-        for (const r of rows) {
-          const key = `general:${r.id}`
-          if (next[key] && !nextBulk[key]) {
-            nextBulk[key] = {
-              title: r.title || '',
-              content: r.summary || r.content || '',
-            }
-          }
-        }
-        bulkSelectedArticles.value = nextBulk
-      } catch (bulkErr) {
-        console.warn('获取 general 全量文章数据失败，词云分析时将逐条请求详情', bulkErr)
-      }
-      if (truncated) {
-        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
-        alert(allSelectError.value)
-      }
-    } catch (e) {
-      allSelectError.value = e?.message || String(e)
-    } finally {
-      allSelectLoading.value = false
-    }
-    return
-  }
-
-  // yahoo：远程获取全部 ID（无分页限制），并获取全量文章数据存储
-  if (source === 'yahoo') {
-    allSelectLoading.value = true
-    allSelectError.value = ''
-    try {
-      const start = timeRange.value?.[0] || ''
-      const end = timeRange.value?.[1] || ''
-      const q = keyword.value?.trim() || ''
-      const resp = await listYahooIds({ start, end, q, limit: total.value || 50000 })
-      const ids = resp?.ids || []
-      const truncated = !!resp?.truncated
-      const next = { ...selectedMap.value }
-      for (const id of ids) {
-        next[`yahoo:${id}`] = true
-      }
-      selectedMap.value = next
-      // 获取全部列表数据以存储 title/summary 等信息
-      try {
-        const fetchSize = ids.length || (total.value || 50000)
-        const listResp = await listYahooFinanceNews(0, fetchSize, { start, end, q })
-        const rows = listResp?.content || listResp?.list || []
-        const nextData = { ...yahooSelectedData.value }
-        for (const r of rows) {
-          const idStr = String(r.id)
-          if (next[`yahoo:${idStr}`] && !nextData[idStr]) {
-            nextData[idStr] = {
-              title: r.title || '',
-              displayTime: r.displayTime || '',
-              summary: r.summary || '',
-            }
-          }
-        }
-        yahooSelectedData.value = nextData
-      } catch (bulkErr) {
-        // 回退：至少存储当前页面数据
-        const nextData = { ...yahooSelectedData.value }
-        for (const it of items.value) {
-          const idStr = String(it.id)
-          if (next[`yahoo:${idStr}`] && !nextData[idStr]) {
-            nextData[idStr] = {
-              title: it?.title || '',
-              displayTime: it?.displayTime || '',
-              summary: it?.summary || '',
-            }
-          }
-        }
-        yahooSelectedData.value = nextData
-        console.warn('获取 yahoo 全量文章数据失败，仅存储当前页数据', bulkErr)
-      }
-      if (truncated) {
-        allSelectError.value = `结果过多，仅选中了前 ${ids.length} 条（limit=${resp?.limit}，total=${resp?.total}）。如需更多请提高后端 limit 上限或缩小筛选范围。`
-        alert(allSelectError.value)
-      }
-    } catch (e) {
-      allSelectError.value = e?.message || String(e)
-    } finally {
-      allSelectLoading.value = false
-    }
-    return
-  }
-
-  // nytimes：直接选中当前已加载的 items，无需发请求
-  if (source === 'nytimes') {
-    for (const it of items.value) {
-      toggleNytimesSelected(it, true)
-    }
-    return
-  }
 }
 
 const yahooAiLoading = ref(false)
@@ -939,7 +647,7 @@ onMounted(() => {
 
       <!-- 其他菜单：正常两栏布局 -->
       <template v-else>
-      <div class="card listCard">
+        <div class="card listCard">
         <div class="cardHeader" v-if="activeMenu !== 'industry'">
           <div style="font-weight:700; font-size: 16px;">列表</div>
           <div class="muted" v-if="total">共 {{ total }} 条</div>
@@ -971,9 +679,9 @@ onMounted(() => {
                 :model-value="pageAllSelected"
                 @change="(v) => toggleSelectAllOnPage(!!v)"
               />
-            </div>
+              </div>
 
-          <div v-if="canSelectAllMenu" class="filterItem">
+            <div v-if="canSelectAllMenu" class="filterItem">
               <button class="btn" type="button" @click="selectAllResults" :disabled="allSelectLoading || loadingList">
                 {{ allSelectLoading ? '操作中...' : (currentSourceSelectedCount > 0 ? `全部取消勾选（已选${currentSourceSelectedCount}条）` : `全部选中（共${total || 0}条）`) }}
               </button>
@@ -1010,20 +718,20 @@ onMounted(() => {
 
           <!-- 其他菜单：正常列表 -->
           <template v-else>
-          <div v-if="loadingList" class="loadingState">
-            <div class="spinner"></div>
-            <div class="muted">正在加载数据...</div>
-          </div>
-          <div v-else-if="listError" class="errorState">{{ listError }}</div>
-          <div v-else-if="!items.length" class="emptyState">暂无数据</div>
+            <div v-if="loadingList" class="loadingState">
+              <div class="spinner"></div>
+              <div class="muted">正在加载数据...</div>
+            </div>
+            <div v-else-if="listError" class="errorState">{{ listError }}</div>
+            <div v-else-if="!items.length" class="emptyState">暂无数据</div>
 
-          <div v-else class="list">
-            <button
-              v-for="it in items"
-              :key="it.id"
-              class="listItem"
-              @click="(activeMenu === 'yahoo' || activeMenu === 'nytimes') ? openUrl(it.articleUrl) : openDetail(it.id)"
-            >
+            <div v-else class="list">
+                <button
+                v-for="it in items"
+                :key="it.id"
+                class="listItem"
+                @click="(activeMenu === 'yahoo' || activeMenu === 'nytimes') ? openUrl(it.articleUrl) : openDetail(it.id)"
+                >
               <div v-if="activeMenu === 'yahoo' || activeMenu === 'nytimes'" class="yahooItem">
                 <el-checkbox
                   :model-value="isSelected(activeMenu === 'yahoo' ? 'yahoo' : 'nytimes', it.id)"
@@ -1067,10 +775,10 @@ onMounted(() => {
                 </div>
               </div>
             </button>
-          </div>
+            </div>
 
-          <div class="pagination" v-if="total">
-            <el-pagination
+            <div class="pagination" v-if="total">
+              <el-pagination
               v-model:current-page="page"
               v-model:page-size="pageSize"
               :page-sizes="[50]"
@@ -1078,8 +786,8 @@ onMounted(() => {
               background
               layout="prev, pager, next, total"
               @current-change="loadList"
-            />
-          </div>
+              />
+            </div>
           </template>
         </div>
       </div>
@@ -1226,30 +934,6 @@ onMounted(() => {
   }
 }
 
-.scriptPanel{
-  grid-column: 1 / -1;
-  width: min(980px, 100%);
-  margin: 0 auto;
-}
-.scriptForm{
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-  display: grid;
-  gap: 10px;
-}
-.scriptRow{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.monoInline{
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-}
-
 
 .filterItem {
   display: flex;
@@ -1314,30 +998,7 @@ onMounted(() => {
   justify-content: center;
 }
 
-.aiContentHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 0;
-}
-.aiContentBody {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-  padding: 20px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-}
-.aiContentPre {
-  width: 100%;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+
 .actionGroup {
   display: flex;
   gap: 10px;
@@ -1349,57 +1010,8 @@ onMounted(() => {
   gap:10px;
   margin: 10px 0 0;
 }
-.historyBox{
-  margin-top: 14px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-}
-.historyList{
-  display: grid;
-  gap: 8px;
-  max-height: 240px;
-  overflow: auto;
-  padding-right: 6px;
-}
-.historyItem{
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.historyItem:hover{
-  border-color: var(--primary-color);
-  transform: translateX(2px);
-}
-.historyItemMain{
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-.historyTime{
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-.mono{
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
+
 .aiProgress {
   display: flex;
   align-items: center;
@@ -1540,24 +1152,4 @@ onMounted(() => {
 }
 
 /* 删除按钮 */
-.btn-delete-item {
-  background: transparent;
-  border: 1px solid #e74c3c;
-  color: #e74c3c;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-.btn-delete-item:hover {
-  background: #e74c3c;
-  color: #fff;
-}
 </style>

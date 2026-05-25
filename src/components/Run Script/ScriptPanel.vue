@@ -120,6 +120,7 @@ function clearOutput() {
 </script>
 
 <template>
+  <main class="mainContent">
   <div class="card scriptPanel">
     <div class="cardHeader">
       <div style="font-weight:800; font-size: 16px;">脚本运行 · {{ activeMenuName }}</div>
@@ -202,6 +203,7 @@ function clearOutput() {
       <div v-else-if="!scriptRunning" class="emptyState sm">点击"运行脚本"开始执行</div>
     </div>
   </div>
+  </main>
 </template>
 
 <style scoped>
