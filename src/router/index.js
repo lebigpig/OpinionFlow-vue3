@@ -25,11 +25,6 @@ const routes = [
                 component: () => import('@/views/YahooNews.vue')
             },
             {
-                path: 'news/nytimes',
-                name: 'NytimesNews',
-                component: () => import('@/views/NYTimesNews.vue')
-            },
-            {
                 path: 'news/deepseek',
                 name: 'DeepseekZone',
                 component: () => import('@/views/DeepseekNews.vue')

@@ -24,8 +24,6 @@ const { closeDetail,runAi } = detailStore
 const routeNameToMenuKey = {
   GeneralNews: 'general',
   YahooNews: 'yahoo',
-  NytimesNews: 'nytimes',
-  DeepseekZone: 'deepseek',
   FinanceNews: 'finance',
   WordCloudAnalysis: 'industry',
   AICustomAnalysis: 'ai_custom',
@@ -40,8 +38,6 @@ const menuGroups = [
     children: [
       { key: 'general', name: '网易新闻列表', to: '/news/general' },
       { key: 'yahoo', name: '雅虎新闻', to: '/news/yahoo' },
-      { key: 'nytimes', name: '纽约时报新闻', to: '/news/nytimes' },
-      { key: 'deepseek', name: 'DeepSeek 专区', to: '/news/deepseek' },
     ],
   },
   {
