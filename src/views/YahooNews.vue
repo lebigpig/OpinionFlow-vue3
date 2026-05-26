@@ -90,9 +90,9 @@ const openDetail = (id) => { /* placeholder */ }
                   v-for="it in items"
                   :key="it.id"
                   class="listItem"
-                  @click="(activeMenu === 'yahoo' || activeMenu === 'nytimes') ? openUrl(it.articleUrl) : openDetail(it.id)"
+                  @click="openUrl(it.articleUrl)"
               >
-                <div v-if="activeMenu === 'yahoo' || activeMenu === 'nytimes'" class="yahooItem">
+                <div class="yahooItem">
                   <el-checkbox
                       :model-value="isSelected(activeMenu === 'yahoo' ? 'yahoo' : 'nytimes', it.id)"
                       @click.stop
@@ -112,28 +112,7 @@ const openDetail = (id) => { /* placeholder */ }
                     🔗
                   </button>
                 </div>
-                <div v-else class="generalItem">
-                  <el-checkbox
-                      v-if="activeMenu === 'general' || activeMenu === 'finance'"
-                      :model-value="isSelected(currentSource, it.id)"
-                      @click.stop
-                      @change="(v) => toggleSelected(currentSource, it.id, !!v)"
-                  />
-                  <div class="itemMain">
-                    <div class="listItemTitle">{{ it.title || '(无标题)' }}</div>
-                    <div class="muted">
-                      <template v-if="activeMenu === 'comments'">
-                        分析时间为: {{ it.publishTime || '—' }}；总评论数：{{ it.commentTotal ?? '—' }}
-                      </template>
-                      <template v-else-if="activeMenu === 'finance'">
-                        <span class="financeSummary">{{ it.summary || '' }}</span>
-                      </template>
-                      <template v-else>
-                        {{ it.publishTime || '' }}
-                      </template>
-                    </div>
-                  </div>
-                </div>
+
               </button>
             </div>
 
