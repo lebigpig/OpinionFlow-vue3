@@ -198,7 +198,7 @@ body {
 .listItem {
   width: 100%;
   text-align: left;
-  padding: 16px;
+  padding: 0;
   border-radius: 14px;
   border: 1px solid var(--border-color-light);
   background: var(--panel-bg-2);
@@ -219,6 +219,23 @@ body {
   margin-bottom: 6px;
 }
 
+.generalItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+}
+
+.generalItem .el-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+}
+
 .pre {
   white-space: pre-wrap;
   word-break: break-word;
@@ -227,7 +244,12 @@ body {
   line-height: 1.6;
   color: var(--text-regular);
 }
-
+/*//页面跳转页数栏*/
+.pagination {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+}
 .detailOverlay {
   position: fixed;
   inset: 0;

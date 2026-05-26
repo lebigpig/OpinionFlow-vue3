@@ -371,11 +371,7 @@ onMounted(() => {
 }
 .btn.sm { padding: 6px 10px; font-size: 12px; }
 
-.pagination {
-  margin-top: 24px;
-  display: flex;
-  justify-content: center;
-}
+
 
 .aiContentHeader {
   display: flex;
