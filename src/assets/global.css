@@ -15,3 +15,8 @@
     background: var(--panel-bg-2);
     border-radius: 12px;
 }
+.filterItem{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
