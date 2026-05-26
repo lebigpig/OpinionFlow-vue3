@@ -3,25 +3,35 @@ import TimeFilter from "@/components/Filter/TimeFilter.vue";
 import { useNewsStore } from '@/stores/NewsStore'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+import {nextTick} from "vue";
+import { useDetailsStore } from '@/stores/DetailStore.js'
+
+
 
 const router = useRouter()
+
 const newsStore = useNewsStore()
+const detailStore = useDetailsStore()
+
 const {
   timeRange, keyword, total, items, page, pageSize,
   loadingList, listError, activeMenu, currentSource,
   pageAllSelected, canSelectAllMenu, allSelectLoading,
   currentSourceSelectedCount, allSelectError
 } = storeToRefs(newsStore)
+
+
 const {
   loadList, isSelectableMenu, isSelected, toggleSelected,
   toggleSelectAllOnPage, selectAllResults
 } = newsStore
 
+
+//导入详情页预览功能
+const {openDetail} = detailStore
+
 function openUrl(url) {
   if (url) window.open(url, '_blank')
-}
-function openDetail(id) {
-  router.push({ name: 'NewsDetail', params: { id } })
 }
 </script>
 

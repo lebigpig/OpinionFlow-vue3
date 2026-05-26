@@ -1417,6 +1417,111 @@ async function selectAllResults() {
         }, true)
       }
     }
+  }function renderStockCommentCharts(d) {
+    const x = normalizeStockCommentApi(d)
+    if (!x) return
+
+    const moodVal = parseScore0to100(x.mood)
+    if (stockMoodPieEl.value) {
+      if (stockMoodPieInst) {
+        stockMoodPieInst.dispose()
+        stockMoodPieInst = null
+      }
+      stockMoodPieInst = echarts.init(stockMoodPieEl.value, isDark.value ? 'dark' : null)
+      window.addEventListener('resize', () => stockMoodPieInst?.resize())
+      const m = moodVal ?? 50
+      stockMoodPieInst.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'item' },
+        legend: { top: 8, data: ['乐观倾向', '悲观倾向'] },
+        series: [{
+          name: '情绪 mood',
+          type: 'pie',
+          radius: ['38%', '72%'],
+          label: { formatter: '{b}: {c}' },
+          data: [
+            { value: m, name: '乐观倾向', itemStyle: { color: '#ffffff' } },
+            { value: Math.max(0, 100 - m), name: '悲观倾向', itemStyle: { color: '#000000' } },
+          ],
+        }],
+      }, true)
+    }
+
+    const ivi = parseScore0to100(x.ivi)
+    const nar = parseScore0to100(x.narrativeCoherence)
+    const info = parseScore0to100(x.infoSourceReliance)
+    const tc = Number(x.themeCount)
+    const themeBar = Number.isFinite(tc) ? Math.max(0, tc) : 0
+    const vIvi = ivi ?? 0
+    const vNar = nar ?? 0
+    const vInfo = info ?? 0
+    const maxY = Math.max(100, vIvi, vNar, vInfo, themeBar)
+
+    if (stockMetricsBarEl.value) {
+      if (stockMetricsBarInst) {
+        stockMetricsBarInst.dispose()
+        stockMetricsBarInst = null
+      }
+      stockMetricsBarInst = echarts.init(stockMetricsBarEl.value, isDark.value ? 'dark' : null)
+      window.addEventListener('resize', () => stockMetricsBarInst?.resize())
+      stockMetricsBarInst.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis' },
+        grid: { left: 48, right: 16, top: 36, bottom: 72, containLabel: true },
+        xAxis: {
+          type: 'category',
+          data: ['IVI(非理性)', '叙事一致性', '信息源依赖度', '主题数量'],
+          axisLabel: { interval: 0, rotate: 18 },
+        },
+        yAxis: { type: 'value', min: 0, max: maxY, name: '分数/个数' },
+        series: [{
+          type: 'bar',
+          data: [vIvi, vNar, vInfo, themeBar],
+          itemStyle: { color: '#3498db' },
+        }],
+      }, true)
+    }
+
+    const themes = x.mainThemes?.length ? x.mainThemes : []
+    if (stockThemesBarEl.value) {
+      if (stockThemesBarInst) {
+        stockThemesBarInst.dispose()
+        stockThemesBarInst = null
+      }
+      stockThemesBarInst = echarts.init(stockThemesBarEl.value, isDark.value ? 'dark' : null)
+      window.addEventListener('resize', () => stockThemesBarInst?.resize())
+      if (!themes.length) {
+        stockThemesBarInst.clear()
+        stockThemesBarInst.setOption({
+          backgroundColor: 'transparent',
+          title: { text: '暂无 main_themes 数据', left: 'center', top: 'middle', textStyle: { fontSize: 14, color: '#888' } },
+          xAxis: { show: false },
+          yAxis: { show: false },
+          series: [],
+        }, true)
+      } else {
+        const isWeightedObject = themes.length && typeof themes[0] === 'object' && themes[0] !== null && 'name' in themes[0] && 'weight' in themes[0]
+        const labels = isWeightedObject ? themes.map(t => String(t.name ?? '')) : themes.map(t => String(t ?? ''))
+        const values = isWeightedObject ? themes.map(t => Number(t.weight ?? 0)) : themes.map(() => 1)
+        const maxV = Math.max(1, ...values.filter(v => Number.isFinite(v)).map(v => Math.max(0, v)))
+        stockThemesBarInst.setOption({
+          backgroundColor: 'transparent',
+          title: { show: false, text: '' },
+          tooltip: {
+            trigger: 'axis',
+            valueFormatter: (v) => {
+              const n = Number(v)
+              if (!Number.isFinite(n)) return String(v ?? '')
+              return (isWeightedObject ? n.toFixed(3) : String(n))
+            },
+          },
+          grid: { left: 48, right: 16, top: 28, bottom: 88, containLabel: true },
+          xAxis: { type: 'category', data: labels, axisLabel: { interval: 0, rotate: 28 } },
+          yAxis: { type: 'value', min: 0, max: maxV, name: isWeightedObject ? '权重(0-1)' : '出现(示意)' },
+          series: [{ type: 'bar', data: values, itemStyle: { color: '#9b59b6' } }],
+        }, true)
+      }
+    }
   }
 
   async function openDetail(id) {

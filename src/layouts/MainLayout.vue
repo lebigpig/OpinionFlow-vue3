@@ -1,14 +1,25 @@
 <script setup>
 import AppHeader from './header/AppHeader.vue'
 import AppSidebar from './Right Sidebar/AppSidebar.vue'
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, watch, toRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useNewsStore } from '@/stores/NewsStore'
-
+import {useDetailsStore} from "@/stores/DetailStore.js";
+const detailStore = useDetailsStore()
 const route = useRoute()
 const newsStore = useNewsStore()
 const { isDark, toggleTheme } = useTheme()
+
+//逐个解耦detailStore的属性，避免整个store被过度依赖导致不必要的更新
+const selectedId = toRef(detailStore, 'selectedId')
+const detail = toRef(detailStore, 'detail')
+const loadingDetail = toRef(detailStore, 'loadingDetail')
+const detailError = toRef(detailStore, 'detailError')
+const aiLoading = toRef(detailStore, 'aiLoading')
+const aiError = toRef(detailStore, 'aiError')
+const aiResult = toRef(detailStore, 'aiResult')
+const { closeDetail,runAi } = detailStore
 
 const routeNameToMenuKey = {
   GeneralNews: 'general',
@@ -131,7 +142,7 @@ onMounted(() => {
           <div v-else-if="detail">
             <div class="detailMeta">
               <span class="badge">{{ activeMenu === 'comments' ? '分析时间' : '发布时间' }}</span>
-              <span class="time">{{ detail.publishTime || '未知' }}</span>
+              <span class="time">{{ detail.time || '未知' }}</span>
             </div>
 
             <pre class="pre contentPre">{{ detail.content || '' }}</pre>
