@@ -279,6 +279,27 @@ body {
   overflow-y: auto;
   padding: 24px;
 }
+/*雅虎新闻*/
+.yahooItem, .generalItem {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 20px;
+}
+.btn.sm { padding: 6px 10px; font-size: 12px; }
+.newsImg {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.itemMain {
+  flex: 1;
+  min-width: 0;
+}
+
 
 /* Scrollbar Styling */
 ::-webkit-scrollbar {

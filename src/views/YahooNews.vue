@@ -26,7 +26,7 @@ const openDetail = (id) => { /* placeholder */ }
     <!-- AI分析 菜单：整块替换为 AICustomAnalysis 组件（内含左右两栏） -->
 
     <!-- 其他菜单：正常两栏布局 -->
-    <template>
+
       <div class="card listCard">
         <div class="cardHeader">
           <div style="font-weight:700; font-size: 16px;">列表</div>
@@ -77,7 +77,7 @@ const openDetail = (id) => { /* placeholder */ }
 
 
           <!-- 其他菜单：正常列表 -->
-          <template>
+
             <div v-if="loadingList" class="loadingState">
               <div class="spinner"></div>
               <div class="muted">正在加载数据...</div>
@@ -148,7 +148,7 @@ const openDetail = (id) => { /* placeholder */ }
                   @current-change="loadList"
               />
             </div>
-          </template>
+
         </div>
       </div>
 
@@ -177,7 +177,7 @@ const openDetail = (id) => { /* placeholder */ }
 
         </div>
       </div>
-    </template>
+
   </main>
 
 </template>

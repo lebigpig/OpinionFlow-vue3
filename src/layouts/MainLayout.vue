@@ -1,7 +1,7 @@
 <script setup>
 import AppHeader from './header/AppHeader.vue'
 import AppSidebar from './Right Sidebar/AppSidebar.vue'
-import { computed, onMounted, watch, toRef } from 'vue'
+import { computed, onMounted, watch, toRef, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useNewsStore } from '@/stores/NewsStore'
@@ -73,13 +73,16 @@ const menuGroups = [
 ]
 
 const activeMenu = computed(() => routeNameToMenuKey[route.name] || 'general')
-const groupOpen = computed(() => {
-  // 根据当前路由自动展开对应的菜单组
-  const key = activeMenu.value
-  const open = { news: true, realtime: true, analysis: true, scripts: true }
-  if (key === 'general' || key === 'yahoo' || key === 'nytimes' || key === 'deepseek') open.news = true
-  return open
+const groupOpen = reactive({
+  news: true,
+  realtime: true,
+  analysis: true,
+  scripts: true,
 })
+
+function toggleGroup(key) {
+  groupOpen[key] = !groupOpen[key]
+}
 
 const activeMenuName = computed(() => {
   for (const g of menuGroups) {
@@ -118,7 +121,7 @@ onMounted(() => {
         :menuGroups="menuGroups"
         :groupOpen="groupOpen"
         :activeMenu="activeMenu"
-        @toggleGroup="(key) => groupOpen[key] = !groupOpen[key]"
+        @toggleGroup="toggleGroup"
     />
     <RouterView />
   </div>
@@ -352,24 +355,9 @@ onMounted(() => {
   color: var(--text-primary);
   display: inline-block;
 }
-.yahooItem, .generalItem {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-}
-.newsImg {
-  width: 60px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 12px;
-  flex-shrink: 0;
-}
-.itemMain {
-  flex: 1;
-  min-width: 0;
-}
-.btn.sm { padding: 6px 10px; font-size: 12px; }
+
+
+
 
 
 
