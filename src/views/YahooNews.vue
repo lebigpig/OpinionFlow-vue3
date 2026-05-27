@@ -7,13 +7,13 @@ const store = useNewsStore()
 const {
   total, items, timeRange, keyword, page, pageSize,
   pageAllSelected, allSelectLoading, allSelectError,
-  loadingList, listError, canSelectAllMenu,
+  loadingList, listError,
   currentSourceSelectedCount, currentSource,
   activeMenu,
 } = storeToRefs(store)
 const {
   loadList, toggleSelectAllOnPage, selectAllResults,
-  isSelected, toggleSelected, toggleYahooSelected, toggleNytimesSelected,
+  isSelected, isSelectableMenu, toggleYahooSelected, toggleNytimesSelected,
 } = store
 
 const openUrl = (url) => { if (url) window.open(url, '_blank') }
@@ -68,7 +68,7 @@ const openDetail = (id) => { /* placeholder */ }
             </div>
           </div>
 
-          <div v-if="canSelectAllMenu && allSelectError" class="errorState allSelectAlert" style="padding: 12px 0;">
+          <div v-if="isSelectableMenu() && allSelectError" class="errorState allSelectAlert" style="padding: 12px 0;">
             <span>{{ allSelectError }}</span>
             <button class="btn sm" type="button" @click="allSelectError = ''" style="margin-left: 8px;">知道了</button>
           </div>
@@ -134,7 +134,7 @@ const openDetail = (id) => { /* placeholder */ }
       <div class="card detailPlaceholder">
         <div class="cardHeader">
           <div style="font-weight:700; font-size: 16px;">详情预览</div>
-          <button class="btn primary" @click="runAi" :disabled="!detail || aiLoading" v-if="activeMenu !== 'industry' && activeMenu !== 'yahoo' && !scriptKeyFromMenu()">AI 解析</button>
+          <button class="btn primary">AI 解析</button>
         </div>
         <div class="cardBody">
 
@@ -142,16 +142,9 @@ const openDetail = (id) => { /* placeholder */ }
           <div>
             <div class="muted">勾选雅虎新闻后发送给 AI 分析。</div>
             <div class="actionGroup">
-              <button class="btn primary" @click="runYahooAi" :disabled="yahooAiLoading">发送到 AI</button>
+              <button class="btn primary">发送到 AI</button>
             </div>
-            <div v-if="yahooAiLoading" class="aiProgress">
-              <div class="spinner sm"></div>
-              <span>流式分析中...</span>
-            </div>
-            <div v-if="yahooAiError" class="errorState">{{ yahooAiError }}</div>
-            <div v-if="yahooAiResult" class="aiResultBox">
-              <pre class="pre">{{ yahooAiResult }}</pre>
-            </div>
+
           </div>
 
         </div>

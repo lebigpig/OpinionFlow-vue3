@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   listGeneral, listGeneralIds,
   listFinance, listFinanceIds,
@@ -8,6 +9,8 @@ import {
 } from '../lib/api'
 
 export const useNewsStore = defineStore('news', () => {
+  const route = useRoute()
+
   // ─── 核心 5 个状态 ─────────────────────────────────
   const selectedMap = ref({})
   const bulkSelectedArticles = ref({})
@@ -33,7 +36,8 @@ export const useNewsStore = defineStore('news', () => {
   }
 
   function isSelectableMenu() {
-    return activeMenu.value === 'general' || activeMenu.value === 'finance' || activeMenu.value === 'yahoo' || activeMenu.value === 'nytimes'
+    const p = route.path
+    return p.startsWith('/news') || p.startsWith('/realtime')
   }
 
   // ─── 计算属性 ───────────────────────────────────────
@@ -51,7 +55,6 @@ export const useNewsStore = defineStore('news', () => {
   const currentSource = computed(() => {
     if (activeMenu.value === 'finance') return 'finance'
     if (activeMenu.value === 'yahoo') return 'yahoo'
-    if (activeMenu.value === 'nytimes') return 'nytimes'
     return 'general'
   })
 
@@ -61,9 +64,6 @@ export const useNewsStore = defineStore('news', () => {
     return items.value.every(it => isSelected(currentSource.value, it.id))
   })
 
-  const canSelectAllMenu = computed(() => {
-    return activeMenu.value === 'general' || activeMenu.value === 'finance' || activeMenu.value === 'yahoo' || activeMenu.value === 'nytimes'
-  })
 
   const currentSourceSelectedCount = computed(() => {
     return selectedCounts.value[currentSource.value] || 0
@@ -354,7 +354,6 @@ export const useNewsStore = defineStore('news', () => {
     selectedCounts,
     currentSource,
     pageAllSelected,
-    canSelectAllMenu,
     currentSourceSelectedCount,
 
     // 方法

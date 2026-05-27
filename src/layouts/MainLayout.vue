@@ -6,7 +6,12 @@ import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useNewsStore } from '@/stores/NewsStore'
 import {useDetailsStore} from "@/stores/DetailStore.js";
+import {useIndustryStore} from "@/stores/IndustryStore.js";
+import {storeToRefs} from 'pinia'
 const detailStore = useDetailsStore()
+const industryStore = useIndustryStore()
+const { chartPreviewOpen, chartPreviewTarget, chartPreviewEl } = storeToRefs(industryStore)
+const { closeChartPreview, downloadPreview } = industryStore
 const route = useRoute()
 const newsStore = useNewsStore()
 const { isDark, toggleTheme } = useTheme()
@@ -22,13 +27,13 @@ const aiResult = toRef(detailStore, 'aiResult')
 const { closeDetail,runAi } = detailStore
 
 const routeNameToMenuKey = {
-  GeneralNews: 'general',
-  YahooNews: 'yahoo',
-  FinanceNews: 'finance',
-  WordCloudAnalysis: 'industry',
-  AICustomAnalysis: 'ai_custom',
-  CommentsAnalysis: 'comments',
-  Scripts: 'scripts',
+  general: 'general',
+  yahoo: 'yahoo',
+  finance: 'finance',
+  industry: 'industry',
+  ai_custom: 'ai_custom',
+  comments: 'comments',
+  scripts: 'scripts',
 }
 
 const menuGroups = [

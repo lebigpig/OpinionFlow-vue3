@@ -16,49 +16,68 @@ const routes = [
             // 新闻模块
             {
                 path: 'news/general',
-                name: 'GeneralNews',
+                name: 'general',
                 component: () => import('@/views/GeneralNews.vue')
             },
             {
                 path: 'news/yahoo',
-                name: 'YahooNews',
+                name: 'yahoo',
                 component: () => import('@/views/YahooNews.vue')
             },
-            {
-                path: 'news/deepseek',
-                name: 'DeepseekZone',
-                component: () => import('@/views/DeepseekNews.vue')
-            },
+
 
             // 实时模块
             {
                 path: 'realtime/finance',
-                name: 'FinanceNews',
+                name: 'finance',
                 component: () => import('@/views/FinanceNews.vue')
             },
 
             // 分析模块
             {
                 path: 'analysis/industry',
-                name: 'WordCloudAnalysis',
+                name: 'industry',
                 component: () => import('@/views/Industryanalyse.vue')
             },
             {
                 path: 'analysis/ai_custom',
-                name: 'AICustomAnalysis',
+                name: 'ai_custom',
                 component: () => import('@/views/AICustomAnalysis.vue')
             },
             {
                 path: 'analysis/comments',
-                name: 'CommentsAnalysis',
+                name: 'comments',
                 component: () => import('@/views/StockComments.vue')
             },
 
             // 脚本运行模块
             {
                 path: 'scripts',
-                name: 'Scripts',
-                component: () => import('@/views/ScriptRun.vue')
+                name: 'scripts',
+                component: () => import('@/views/ScriptRun.vue'),
+                children: [
+                    {
+                        path:'/script_all',
+                        name:'script_all',
+
+                    },
+                    {
+                        path:'/script_news',
+                        name:'script_news',
+
+                    },
+                    {
+                        path:'/script_realtime',
+                        name:'script_realtime',
+
+                    },
+                    {
+                        path:'/script_comments',
+                        name:'script_comments',
+
+                    },
+
+                    ]
             },
         ]
     },

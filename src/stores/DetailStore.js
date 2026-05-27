@@ -7,9 +7,9 @@ import { getNewsDetail, getFinanceDetail, getStockCommentDetail,aiParseStream } 
 import { htmlToPlainText } from '@/moudle/htmlToPlainText.js'
 
 
-const { isDark, toggleTheme } = useTheme()
 export const useDetailsStore = defineStore('details', () => {
   const route = useRoute()
+  const { isDark, toggleTheme } = useTheme()
   
 
   const selectedId = ref(null)

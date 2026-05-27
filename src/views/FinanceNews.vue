@@ -11,7 +11,7 @@ const { items, loadingList, listError, total } = storeToRefs(newsStore)
 
 const {
   timeRange, keyword,  page,
-  pageAllSelected, canSelectAllMenu, allSelectLoading,
+  pageAllSelected, allSelectLoading,
   currentSourceSelectedCount, allSelectError
 } = storeToRefs(newsStore)
 
@@ -60,7 +60,7 @@ const {openDetail} = detailStore
             />
           </div>
 
-          <div v-if="canSelectAllMenu" class="filterItem">
+          <div v-if="isSelectableMenu()" class="filterItem">
             <button class="btn" type="button" @click="selectAllResults" :disabled="allSelectLoading || loadingList">
               {{ allSelectLoading ? '操作中...' : (currentSourceSelectedCount > 0 ? `全部取消勾选（已选${currentSourceSelectedCount}条）` : `全部选中（共${total || 0}条）`) }}
             </button>
@@ -81,9 +81,9 @@ const {openDetail} = detailStore
           >
             <div class="generalItem">
               <el-checkbox
-                  :model-value="isSelected('general', it.id)"
+                  :model-value="isSelected('finance', it.id)"
                   @click.stop
-                  @change="(v) => toggleSelected('general', it.id, !!v)"
+                  @change="(v) => toggleSelected('finance', it.id, !!v)"
               />
               <div class="itemMain">
                 <div class="listItemTitle">{{ it.title || '(无标题)' }}</div>
@@ -94,6 +94,17 @@ const {openDetail} = detailStore
               </div>
             </div>
           </button>
+        </div>
+        <div class="pagination" v-if="total">
+          <el-pagination
+              v-model:current-page="page"
+              v-model:page-size="pageSize"
+              :page-sizes="[50]"
+              :total="total"
+              background
+              layout="prev, pager, next, total"
+              @current-change="loadList"
+          />
         </div>
       </div>
     </div>

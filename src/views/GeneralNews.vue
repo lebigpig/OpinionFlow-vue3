@@ -16,7 +16,7 @@ const detailStore = useDetailsStore()
 const {
   timeRange, keyword, total, items, page, pageSize,
   loadingList, listError, activeMenu, currentSource,
-  pageAllSelected, canSelectAllMenu, allSelectLoading,
+  pageAllSelected,  allSelectLoading,
   currentSourceSelectedCount, allSelectError
 } = storeToRefs(newsStore)
 
@@ -71,14 +71,14 @@ function openUrl(url) {
               />
             </div>
 
-            <div v-if="canSelectAllMenu" class="filterItem">
+            <div v-if="isSelectableMenu()" class="filterItem">
               <button class="btn" type="button" @click="selectAllResults" :disabled="allSelectLoading || loadingList">
                 {{ allSelectLoading ? '操作中...' : (currentSourceSelectedCount > 0 ? `全部取消勾选（已选${currentSourceSelectedCount}条）` : `全部选中（共${total || 0}条）`) }}
               </button>
             </div>
           </div>
 
-          <div v-if="canSelectAllMenu && allSelectError" class="errorState allSelectAlert" style="padding: 12px 0;">
+          <div v-if="isSelectableMenu() && allSelectError" class="errorState allSelectAlert" style="padding: 12px 0;">
             <span>{{ allSelectError }}</span>
             <button class="btn sm" type="button" @click="allSelectError = ''" style="margin-left: 8px;">知道了</button>
           </div>
