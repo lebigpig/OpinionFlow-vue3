@@ -126,7 +126,7 @@ loadAiCustomHistory()
 
       <div v-if="aiCustomLoading" class="aiProgress">
         <div class="spinner sm"></div>
-        <span>流式分析中... ({{ aiCustomResult.length }} 字符)</span>
+        <span>流式分析中...</span>
       </div>
 
       <div v-if="aiCustomError" class="errorState">{{ aiCustomError }}</div>

@@ -142,11 +142,30 @@ export const useAiStore = defineStore('ai_custom', () => {
             const newSessionId = sessionResp?.sessionId || 'default'
             currentAiChatSessionId.value = newSessionId
 
+            // 立即在聊天面板中显示用户消息和 AI 回复占位
+            const displayPrompt = prompt || '(未输入 Prompt，仅分析选中新闻)'
+            selectedAiCustomItem.value = { sessionId: newSessionId, preview: displayPrompt, messageCount: 0 }
+            aiChatMessages.value = [
+                { role: 'user', content: displayPrompt },
+                { role: 'assistant', content: '' },
+            ]
+            const assistantIdx = 1
+
+            await nextTick()
+            if (aiChatContainer.value) {
+                aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
+            }
+
             await chatMemoryStream(fullContent, {
                 sessionId: newSessionId,
                 selectedContent: aiCustomSelectedContent.value || undefined,
                 onDelta: (delta) => {
-                    aiCustomResult.value += delta
+                    aiChatMessages.value[assistantIdx].content += delta
+                    nextTick(() => {
+                        if (aiChatContainer.value) {
+                            aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight
+                        }
+                    })
                 },
             })
 
