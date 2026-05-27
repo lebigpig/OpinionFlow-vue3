@@ -54,30 +54,30 @@ const routes = [
             {
                 path: 'scripts',
                 name: 'scripts',
+                redirect: '/scripts/script_all',
                 component: () => import('@/views/ScriptRun.vue'),
                 children: [
                     {
-                        path:'/script_all',
-                        name:'script_all',
-
+                        path: 'script_all',
+                        name: 'script_all',
+                        component: () => import('@/views/ScriptRun.vue'),
                     },
                     {
-                        path:'/script_news',
-                        name:'script_news',
-
+                        path: 'script_comments',
+                        name: 'script_comments',
+                        component: () => import('@/views/ScriptRun.vue'),
                     },
                     {
-                        path:'/script_realtime',
-                        name:'script_realtime',
-
+                        path: 'script_news',
+                        name: 'script_news',
+                        component: () => import('@/views/ScriptRun.vue'),
                     },
                     {
-                        path:'/script_comments',
-                        name:'script_comments',
-
+                        path: 'script_realtime',
+                        name: 'script_realtime',
+                        component: () => import('@/views/ScriptRun.vue'),
                     },
-
-                    ]
+                ]
             },
         ]
     },

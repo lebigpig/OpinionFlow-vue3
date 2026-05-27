@@ -24,7 +24,11 @@ const detailError = toRef(detailStore, 'detailError')
 const aiLoading = toRef(detailStore, 'aiLoading')
 const aiError = toRef(detailStore, 'aiError')
 const aiResult = toRef(detailStore, 'aiResult')
-const { closeDetail,runAi } = detailStore
+const stockMoodPieEl = toRef(detailStore, 'stockMoodPieEl')
+const stockMetricsBarEl = toRef(detailStore, 'stockMetricsBarEl')
+const stockThemesBarEl = toRef(detailStore, 'stockThemesBarEl')
+const { closeDetail, runAi } = detailStore
+const { clearIndustryData } = industryStore
 
 const routeNameToMenuKey = {
   general: 'general',
@@ -34,6 +38,10 @@ const routeNameToMenuKey = {
   ai_custom: 'ai_custom',
   comments: 'comments',
   scripts: 'scripts',
+  script_all: 'script_all',
+  script_comments: 'script_comments',
+  script_news: 'script_news',
+  script_realtime: 'script_realtime',
 }
 
 const menuGroups = [
@@ -65,10 +73,10 @@ const menuGroups = [
     key: 'scripts',
     name: '脚本运行',
     children: [
-      { key: 'script_all', name: '全部运行', to: '/scripts' },
-      { key: 'script_comments', name: '评论爬取', to: '/scripts' },
-      { key: 'script_news', name: '新闻爬取', to: '/scripts' },
-      { key: 'script_realtime', name: '实时爬取', to: '/scripts' },
+      { key: 'script_all', name: '全部运行', to: '/scripts/script_all' },
+      { key: 'script_comments', name: '评论爬取', to: '/scripts/script_comments' },
+      { key: 'script_news', name: '新闻爬取', to: '/scripts/script_news' },
+      { key: 'script_realtime', name: '实时爬取', to: '/scripts/script_realtime' },
     ],
   }
 ]
@@ -91,6 +99,12 @@ const activeMenuName = computed(() => {
     if (hit) return hit.name
   }
   return ''
+})
+
+// 路由切换时清空行业分析数据 & 关闭详情面板（销毁 ECharts 实例）
+watch(() => route.path, () => {
+  clearIndustryData()
+  closeDetail()
 })
 
 // 同步路由到 store 的 activeMenu 并加载列表
@@ -146,7 +160,7 @@ onMounted(() => {
           <div v-else-if="detail">
             <div class="detailMeta">
               <span class="badge">{{ activeMenu === 'comments' ? '分析时间' : '发布时间' }}</span>
-              <span class="time">{{ detail.time || '未知' }}</span>
+              <span class="time">{{ detail.analysisTime || '未知' }}</span>
             </div>
 
             <pre class="pre contentPre">{{ detail.content || '' }}</pre>
@@ -209,126 +223,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.header {
-  margin-bottom: 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 24px;
-}
-.headerLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.logoText {
-  font-size: 20px;
-  font-weight: 800;
-  background: linear-gradient(120deg, var(--primary-color), #a8c0ff);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.currentMenu {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.menuName {
-  font-weight: 600;
-  color: var(--primary-color);
-}
-
-.sidebar {
-  height: fit-content;
-  position: sticky;
-  top: 20px;
-}
-.menuGroup {
-  margin-bottom: 8px;
-}
-.menuGroupHeader {
-  padding: 12px 16px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-radius: 10px;
-  transition: background 0.2s;
-}
-.menuGroupHeader:hover {
-  background: var(--panel-bg-2);
-}
-.arrow {
-  font-size: 10px;
-  transition: transform 0.3s;
-}
-.arrow.rotated {
-  transform: rotate(-90deg);
-}
-
-.mainContent {
-  display: grid;
-  grid-template-columns: 1fr 400px;
-  gap: 20px;
-}
-@media (max-width: 1200px) {
-  .mainContent {
-    grid-template-columns: 1fr;
-  }
-}
-
-.scriptPanel{
-  grid-column: 1 / -1;
-  width: min(980px, 100%);
-  margin: 0 auto;
-}
-.scriptForm{
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-  display: grid;
-  gap: 10px;
-}
-.scriptRow{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.monoInline{
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-}
-
-.filterBar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 12px;
-}
-.filterItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.selectAll {
-  margin-left: auto;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-color);
-}
-
 .loadingState, .emptyState, .errorState {
   padding: 60px 0;
   text-align: center;
@@ -351,119 +245,7 @@ onMounted(() => {
 .spinner.sm { width: 16px; height: 16px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.financeSummary {
-  font-weight: 700;
-  color: var(--text-primary);
-  display: inline-block;
-}
 
-
-
-
-
-
-.aiContentHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 0;
-}
-.aiContentBody {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-  padding: 20px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-}
-.aiContentPre {
-  width: 100%;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.actionGroup {
-  display: flex;
-  gap: 10px;
-  margin: 16px 0;
-}
-.selectedHint{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin: 10px 0 0;
-}
-.historyBox{
-  margin-top: 14px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-}
-.historyList{
-  display: grid;
-  gap: 8px;
-  max-height: 240px;
-  overflow: auto;
-  padding-right: 6px;
-}
-.historyItem{
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.historyItem:hover{
-  border-color: var(--primary-color);
-  transform: translateX(2px);
-}
-.historyItemMain{
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-.historyTime{
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-.mono{
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.aiProgress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px;
-  background: var(--panel-bg-2);
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-.chartContainer {
-  margin-top: 20px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-}
 .chartTitle {
   font-weight: 700;
   font-size: 14px;
@@ -471,31 +253,11 @@ onMounted(() => {
   padding-left: 8px;
   border-left: 4px solid var(--primary-color);
 }
-.chartTitleRow{
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-  gap: 10px;
-}
+
 .chart { width: 100%; height: 300px; }
 .chart.small { height: 240px; }
 
-.reasonBox, .aiResultBox {
-  margin-top: 20px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-}
 
-.emptyDetail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 400px;
-  opacity: 0.6;
-}
-.emptyIcon { font-size: 48px; margin-bottom: 16px; }
 
 .detailTitle {
   font-size: 18px;
@@ -579,204 +341,11 @@ onMounted(() => {
   height: 100%;
 }
 
-/* LangChain4j 记忆化对话 */
-.aiChatBox {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 400px;
-  overflow: auto;
-  padding-right: 6px;
-}
-.chatMsg {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color-light);
-}
-.chatMsg.user {
-  background: var(--primary-color);
-  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-  border-color: var(--primary-color);
-}
-.chatMsg.assistant {
-  background: var(--panel-bg);
-}
-.chatRole {
-  font-weight: 700;
-  font-size: 12px;
-  margin-bottom: 6px;
-  color: var(--text-secondary);
-}
-.chatContent {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13px;
-}
-.aiChatInputBox {
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-}
 
-/* 微信风格聊天面板 */
-.chatPanel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 300px;
-}
-.chatPanelHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color-light);
-  margin-bottom: 8px;
-}
-.chatPanelTitle {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-}
-
-/* 聊天面板内部容器（v-show 保持 DOM 存在） */
-.chatPanelInner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  position: relative;
-}
-
-/* loading 覆盖层：绝对定位浮在聊天内容上方，不销毁底层 DOM */
-.chatLoadingOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(2px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  border-radius: 12px;
-}
-
-/* 微信风格消息容器 */
-.wechatChatContainer {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: transparent;
-}
-
-/* 每条消息行 */
-.wechatMsgRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: 100%;
-}
-.wechatMsgRow.user {
-  flex-direction: row;
-  justify-content: flex-end;
-}
-.wechatMsgRow.assistant {
-  flex-direction: row;
-  justify-content: flex-start;
-}
-
-/* 头像 */
-.wechatAvatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.assistantAvatar {
-  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
-}
-.userAvatar {
-  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
-}
-
-/* 气泡 */
-.wechatBubble {
-  max-width: 72%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  position: relative;
-  word-break: break-word;
-  line-height: 1.6;
-  font-size: 13px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-}
-.assistantBubble {
-  background: var(--panel-bg);
-  border: 1px solid var(--border-color-light);
-  border-top-left-radius: 4px;
-}
-.userBubble {
-  background: color-mix(in srgb, var(--primary-color) 88%, #fff);
-  color: #fff;
-  border-top-right-radius: 4px;
-}
 /* 深色模式下用户气泡保持可读 */
 :global(.dark) .userBubble {
   background: color-mix(in srgb, var(--primary-color) 70%, #333);
 }
 
-.wechatBubbleContent {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 
-.allSelectAlert {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: color-mix(in srgb, #e74c3c 10%, var(--panel-bg));
-  border: 1px solid #e74c3c;
-  border-radius: 10px;
-  margin: 8px 0;
-}
-
-/* 删除按钮 */
-.btn-delete-item {
-  background: transparent;
-  border: 1px solid #e74c3c;
-  color: #e74c3c;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-.btn-delete-item:hover {
-  background: #e74c3c;
-  color: #fff;
-}
 </style>

@@ -1,6 +1,28 @@
 <script setup>
+import {storeToRefs} from "pinia";
+import {useAiStore} from "@/stores/AiCustomStore.js";
+import {useNewsStore} from "@/stores/NewsStore.js";
 
+const AiStore = useAiStore()
+const newsStore = useNewsStore()
+const {selectedCounts} = storeToRefs(newsStore)
+const {
+  selectedAiCustomItem,
+  aiCustomHistory,
+  aiCustomHistoryLoading,
+  aiCustomPrompt,
+  aiCustomLoading,
+  aiCustomError,
+  aiCustomResult,
 
+  aiChatLoading,
+  aiChatMessages,
+  aiChatInput,
+  aiChatSending,
+
+} = storeToRefs(AiStore)
+const {loadAiCustomHistory,sendAiChatMessage,runAiCustom,clearAiChatMemory,loadAiCustomHistoryItem,deleteCustomHistory} = AiStore
+loadAiCustomHistory()
 </script>
 
 <template>
@@ -10,12 +32,12 @@
       <div class="cardHeader">
         <div style="font-weight:700; font-size: 16px;">列表</div>
       </div>
-    <div class="cardBody">
-      <div class="chatPanel">
-        <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
-        <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
+      <div class="cardBody">
+        <div class="chatPanel">
+          <div v-if="!selectedAiCustomItem && aiCustomHistory.length === 0 && !aiCustomHistoryLoading" class="emptyState">暂无历史回答</div>
+          <div v-else-if="!selectedAiCustomItem && !aiCustomHistoryLoading" class="emptyState">请在右侧点击历史会话查看对话内容</div>
 
-        <div v-show="selectedAiCustomItem" class="chatPanelInner">
+          <div v-show="selectedAiCustomItem" class="chatPanelInner">
           <div class="chatPanelHeader">
             <div class="chatPanelTitle">{{ selectedAiCustomItem?.preview || selectedAiCustomItem?.sessionId }}</div>
             <button class="btn sm" type="button" @click="loadAiCustomHistory(true)" :disabled="aiCustomHistoryLoading">
@@ -34,18 +56,19 @@
                 class="wechatMsgRow"
                 :class="msg.role"
             >
-              <template v-if="msg.role === 'assistant'">
+              <div v-if="msg.role === 'assistant'" class="assistantContent">
                 <div class="wechatAvatar assistantAvatar">🤖</div>
                 <div class="wechatBubble assistantBubble">
                   <div class="wechatBubbleContent">{{ msg.content }}</div>
                 </div>
-              </template>
-              <template v-else>
+              </div>
+              <div v-else class="userContent">
+                <div class="wechatAvatar userAvatar">👤</div>
+
                 <div class="wechatBubble userBubble">
                   <div class="wechatBubbleContent">{{ msg.content }}</div>
                 </div>
-                <div class="wechatAvatar userAvatar">👤</div>
-              </template>
+              </div>
             </div>
           </div>
           <div class="aiChatInputBox">
@@ -69,8 +92,8 @@
             <div class="muted">正在刷新会话列表...</div>
           </div>
         </div>
+        </div>
       </div>
-    </div>
     </div>
 
     <!-- 右侧卡片：详情面板 -->
@@ -135,259 +158,5 @@
 </template>
 
 <style scoped>
-/* ---- 聊天面板 ---- */
-.chatPanel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 300px;
-}
-.chatPanelHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color-light);
-  margin-bottom: 8px;
-}
-.chatPanelTitle {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-}
-.chatPanelInner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  position: relative;
-}
-.chatLoadingOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(2px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  border-radius: 12px;
-}
-.wechatChatContainer {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: transparent;
-}
-.wechatMsgRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: 100%;
-}
-.wechatMsgRow.user {
-  flex-direction: row;
-  justify-content: flex-end;
-}
-.wechatMsgRow.assistant {
-  flex-direction: row;
-  justify-content: flex-start;
-}
-.wechatAvatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.assistantAvatar {
-  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
-}
-.userAvatar {
-  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
-}
-.wechatBubble {
-  max-width: 72%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  position: relative;
-  word-break: break-word;
-  line-height: 1.6;
-  font-size: 13px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-}
-.assistantBubble {
-  background: var(--panel-bg);
-  border: 1px solid var(--border-color-light);
-  border-top-left-radius: 4px;
-}
-.userBubble {
-  background: color-mix(in srgb, var(--primary-color) 88%, #fff);
-  color: #fff;
-  border-top-right-radius: 4px;
-}
-:global(.dark) .userBubble {
-  background: color-mix(in srgb, var(--primary-color) 70%, #333);
-}
-.wechatBubbleContent {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.aiChatInputBox {
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-}
 
-/* ---- 加载/空/错误状态 ---- */
-.loadingState, .emptyState, .errorState {
-  padding: 60px 0;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-.emptyState.sm { padding: 20px 0; }
-.errorState { color: #e74c3c; }
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--primary-color);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-.spinner.sm { width: 16px; height: 16px; border-width: 2px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- 操作按钮组 ---- */
-.actionGroup {
-  display: flex;
-  gap: 10px;
-  margin: 16px 0;
-}
-.btn.sm { padding: 6px 10px; font-size: 12px; }
-
-/* ---- 已勾选提示 ---- */
-.selectedHint{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin: 10px 0 0;
-}
-
-/* ---- 脚本/Prompt 表单 ---- */
-.scriptForm{
-  margin-top: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg-2);
-  display: grid;
-  gap: 10px;
-}
-
-/* ---- 历史记录 ---- */
-.historyBox{
-  margin-top: 14px;
-  padding: 16px;
-  background: var(--panel-bg-2);
-  border-radius: 14px;
-  border: 1px solid var(--border-color-light);
-}
-.historyList{
-  display: grid;
-  gap: 8px;
-  max-height: 240px;
-  overflow: auto;
-  padding-right: 6px;
-}
-.historyItem{
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color-light);
-  background: var(--panel-bg);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.historyItem:hover{
-  border-color: var(--primary-color);
-  transform: translateX(2px);
-}
-.historyItemMain{
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-.mono{
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.chartTitle {
-  font-weight: 700;
-  font-size: 14px;
-  margin-bottom: 12px;
-  padding-left: 8px;
-  border-left: 4px solid var(--primary-color);
-}
-
-/* ---- AI 进度条 ---- */
-.aiProgress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px;
-  background: var(--panel-bg-2);
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-/* ---- 删除按钮 ---- */
-.btn-delete-item {
-  background: transparent;
-  border: 1px solid #e74c3c;
-  color: #e74c3c;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-.btn-delete-item:hover {
-  background: #e74c3c;
-  color: #fff;
-}
 </style>

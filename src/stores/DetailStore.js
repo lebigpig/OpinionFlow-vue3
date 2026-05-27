@@ -270,6 +270,14 @@ export const useDetailsStore = defineStore('details', () => {
       aiLoading.value = false
     }
   }
+
+
+  function parseScore0to100(v) {
+    const n = Number(String(v ?? '').trim().replace(/%/g, ''))
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.min(100, n))
+  }
+
   return {
     // 状态
     selectedId,

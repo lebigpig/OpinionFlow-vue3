@@ -116,11 +116,15 @@ export const useIndustryStore = defineStore('industries', () => {
         }
     }
 
+    function clearIndustryData() {
+        industryChartData.value = null
+        industryAiRaw.value = ''
+        industryError.value = ''
+    }
+
     const runIndustryAnalysis = async ()=> {
-        console.log('[runIndustryAnalysis] called, industryLoading before:', industryLoading.value)
         industryLoading.value = true
         industryError.value = ''
-        console.log('[runIndustryAnalysis] industryLoading after set true:', industryLoading.value)
         industryAiRaw.value = ''
         industryChartData.value = null
         industrySavedPath.value = ''
@@ -431,6 +435,7 @@ export const useIndustryStore = defineStore('industries', () => {
 
 
     watch(industryChartData, async () => {
+
         await nextTick()
         // v-if 从 false→true 时，first rAF 触发布局，second rAF 才能拿到正确的宽高
         requestAnimationFrame(() => {
@@ -450,6 +455,7 @@ export const useIndustryStore = defineStore('industries', () => {
         openChartPreview,
         runIndustryAnalysis,
         rebuildIndustryCharts,
+        clearIndustryData,
 
         loadIndustryFromHistory,
         loadEchartHistory,

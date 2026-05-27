@@ -10,7 +10,7 @@ const detailStore = useDetailsStore()
 const { items, loadingList, listError, total } = storeToRefs(newsStore)
 
 const {
-  timeRange, keyword,  page,
+  timeRange, keyword, page, pageSize,
   pageAllSelected, allSelectLoading,
   currentSourceSelectedCount, allSelectError
 } = storeToRefs(newsStore)
