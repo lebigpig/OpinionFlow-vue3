@@ -141,13 +141,12 @@ loadAiCustomHistory()
               @click="loadAiCustomHistoryItem(h)"
               type="button"
           >
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button class="btn-delete-item" @click.stop="deleteCustomHistory(h)" title="删除该会话">✕</button>
+            </div>
             <div class="historyItemMain">
               <span class="mono">{{ h.preview || h.sessionId }}</span>
               <span class="muted" style="font-size:11px;">{{ h.messageCount }} 条消息</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span class="muted">加载</span>
-              <button class="btn-delete-item" @click.stop="deleteCustomHistory(h)" title="删除该会话">✕</button>
             </div>
           </button>
               </div>
