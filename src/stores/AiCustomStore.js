@@ -64,73 +64,79 @@ export const useAiStore = defineStore('ai_custom', () => {
 
         try {
             const keys = Object.keys(selectedMap.value)
-            if (keys.length === 0) {
-                throw new Error('请先在新闻列表中勾选条目（可用本页全选）')
-            }
-
-            const articles = []
-            for (const k of keys) {
-                const [source, idStr] = k.split(':')
-                if (source === 'yahoo') {
-                    const idKey = String(idStr)
-                    const y = yahooSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
-                    if (!y) continue
-                    const title = (y.title || '').trim()
-                    const displayTime = (y.displayTime || '').trim()
-                    const summary = (y.summary || '').trim()
-                    const content = [
-                        `publishTime：${displayTime}`,
-                        `summary：`,
-                        summary,
-                    ].filter(Boolean).join('\n')
-                    if (!title && !content.trim()) continue
-                    articles.push({ title, content })
-                    continue
-                }
-                if (source === 'nytimes') {
-                    const idKey = String(idStr)
-                    const n = nytimesSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
-                    if (!n) continue
-                    const title = (n.title || '').trim()
-                    const displayTime = (n.displayTime || '').trim()
-                    const summary = (n.summary || '').trim()
-                    const content = [
-                        `publishTime：${displayTime}`,
-                        `summary：`,
-                        summary,
-                    ].filter(Boolean).join('\n')
-                    if (!title && !content.trim()) continue
-                    articles.push({ title, content })
-                    continue
-                }
-
-                const id = Number(idStr)
-                if (!Number.isFinite(id)) continue
-                const detail = source === 'finance'
-                    ? await getFinanceDetail(id)
-                    : await getNewsDetail(id)
-                articles.push({
-                    title: detail?.title || '',
-                    content: detail?.content || '',
-                })
-            }
-
-            if (!articles.length) {
-                throw new Error('已勾选条目未能生成有效内容（可能跨分页/刷新后丢失了列表数据）')
-            }
-
-            const userContent = articles.map((a, idx) => {
-                const t = (a.title || '').trim()
-                const c = (a.content || '').trim()
-                return `【${idx + 1}】标题：${t}\n内容：\n${c}`
-            }).join('\n\n')
-
-            aiCustomSelectedContent.value = userContent
-
             const prompt = (aiCustomPrompt.value || '').trim()
-            const fullContent = prompt
-                ? `${prompt}\n\n---\n以下是选中的新闻内容：\n\n${userContent}`
-                : userContent
+
+            let fullContent = ''
+            if (keys.length === 0) {
+                // 未勾选任何新闻 → 仅发送 Prompt，后端通过 RAG 检索相关新闻作为上下文
+                if (!prompt) {
+                    throw new Error('请输入 Prompt 或勾选新闻条目后再发送')
+                }
+                aiCustomSelectedContent.value = ''
+                fullContent = prompt
+            } else {
+                const articles = []
+                for (const k of keys) {
+                    const [source, idStr] = k.split(':')
+                    if (source === 'yahoo') {
+                        const idKey = String(idStr)
+                        const y = yahooSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
+                        if (!y) continue
+                        const title = (y.title || '').trim()
+                        const displayTime = (y.displayTime || '').trim()
+                        const summary = (y.summary || '').trim()
+                        const content = [
+                            `publishTime：${displayTime}`,
+                            `summary：`,
+                            summary,
+                        ].filter(Boolean).join('\n')
+                        if (!title && !content.trim()) continue
+                        articles.push({ title, content })
+                        continue
+                    }
+                    if (source === 'nytimes') {
+                        const idKey = String(idStr)
+                        const n = nytimesSelectedData.value[idKey] || items.value.find(it => String(it.id) === idKey)
+                        if (!n) continue
+                        const title = (n.title || '').trim()
+                        const displayTime = (n.displayTime || '').trim()
+                        const summary = (n.summary || '').trim()
+                        const content = [
+                            `publishTime：${displayTime}`,
+                            `summary：`,
+                            summary,
+                        ].filter(Boolean).join('\n')
+                        if (!title && !content.trim()) continue
+                        articles.push({ title, content })
+                        continue
+                    }
+
+                    const id = Number(idStr)
+                    if (!Number.isFinite(id)) continue
+                    const detail = source === 'finance'
+                        ? await getFinanceDetail(id)
+                        : await getNewsDetail(id)
+                    articles.push({
+                        title: detail?.title || '',
+                        content: detail?.content || '',
+                    })
+                }
+
+                if (!articles.length) {
+                    throw new Error('已勾选条目未能生成有效内容（可能跨分页/刷新后丢失了列表数据）')
+                }
+
+                const userContent = articles.map((a, idx) => {
+                    const t = (a.title || '').trim()
+                    const c = (a.content || '').trim()
+                    return `【${idx + 1}】标题：${t}\n内容：\n${c}`
+                }).join('\n\n')
+
+                aiCustomSelectedContent.value = userContent
+                fullContent = prompt
+                    ? `${prompt}\n\n---\n以下是选中的新闻内容：\n\n${userContent}`
+                    : userContent
+            }
 
             const sessionResp = await createNewSession()
             const newSessionId = sessionResp?.sessionId || 'default'

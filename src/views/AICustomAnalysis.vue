@@ -102,7 +102,7 @@ loadAiCustomHistory()
         <div style="font-weight:700; font-size: 16px;">详情预览</div>
         </div>
     <div class="cardBody">
-      <div class="muted">输入自定义 Prompt，结合已勾选的新闻内容发送给 AI 分析（支持记忆化多轮对话）。</div>
+      <div class="muted">输入自定义 Prompt 发送给 AI 分析，可选勾选新闻作为分析素材；未勾选时将由 AI 自动检索相关新闻（支持记忆化多轮对话）。</div>
       <div class="selectedHint">
         <span class="badge">已勾选 {{ selectedCounts.total }} 条</span>
         <span class="muted" v-if="selectedCounts.total">
