@@ -160,7 +160,7 @@ onMounted(() => {
           <div v-else-if="detail">
             <div class="detailMeta">
               <span class="badge">{{ activeMenu === 'comments' ? '分析时间' : '发布时间' }}</span>
-              <span class="time">{{ detail.analysisTime || '未知' }}</span>
+              <span class="time">{{ detail.analysisTime || detail.time||'未知' }}</span>
             </div>
 
             <pre class="pre contentPre">{{ detail.content || '' }}</pre>
