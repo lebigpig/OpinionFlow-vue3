@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { Search, Setting } from '@element-plus/icons-vue'
-import { tavilySearch } from '@/lib/api'
+import { tavilySearch, saveSearchResults } from '@/lib/api'
 
 // 搜索关键词
 const searchQuery = ref('')
@@ -93,6 +93,22 @@ const handleSearch = async () => {
     searchAnswer.value = data.answer || ''
     searchImages.value = data.images || []
     searchTime.value = data.response_time || null
+
+    // 异步保存搜索结果到数据库（不阻塞 UI）
+    if (searchResults.value.length > 0) {
+      const items = searchResults.value.map(r => ({
+        query: searchQuery.value.trim(),
+        url: r.url,
+        title: r.title,
+        score: r.score,
+        publishedDate: r.published_date,
+        content: r.content + '\nAI解析:' + searchAnswer.value,
+        rawContent: r.raw_content,
+      }))
+      saveSearchResults(items).catch(err => {
+        console.warn('保存搜索结果失败:', err)
+      })
+    }
   } catch (err) {
     searchError.value = err.message || '搜索失败'
   } finally {

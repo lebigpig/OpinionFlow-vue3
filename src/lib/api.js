@@ -430,6 +430,14 @@ export const aiChatDeleteSession = (sessionId) => deleteChatSession(sessionId)
 
 /* global __TAVILY_API_KEY__ */
 
+// ────────── 保存搜索结果到数据库 ──────────
+export function saveSearchResults(items) {
+  return request('/api/search-results/save', {
+    method: 'POST',
+    body: JSON.stringify(items),
+  })
+}
+
 // ────────── Tavily 搜索（直连官方 API） ──────────
 export async function tavilySearch(params) {
   const resp = await fetch('https://api.tavily.com/search', {
