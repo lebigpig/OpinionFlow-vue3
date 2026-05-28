@@ -37,3 +37,9 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+#key
+key.properties
+
+# Tavily
+tavily

@@ -37,6 +37,7 @@ const routeNameToMenuKey = {
   industry: 'industry',
   ai_custom: 'ai_custom',
   comments: 'comments',
+  search: 'le_search',
   scripts: 'scripts',
   script_all: 'script_all',
   script_comments: 'script_comments',
@@ -70,6 +71,14 @@ const menuGroups = [
     ],
   },
   {
+
+    key:'search',
+    name:'搜索引擎',
+    children: [
+      { key: 'le_search', name: '乐搜索', to: '/search' },
+    ],
+  },
+  {
     key: 'scripts',
     name: '脚本运行',
     children: [
@@ -86,6 +95,7 @@ const groupOpen = reactive({
   news: true,
   realtime: true,
   analysis: true,
+  search: true,
   scripts: true,
 })
 

@@ -428,3 +428,34 @@ export const aiChatSendStream = async ({ sessionId, message, onEvent } = {}) => 
 export const aiChatClearMemory = (sessionId) => chatMemoryClear(sessionId)
 export const aiChatDeleteSession = (sessionId) => deleteChatSession(sessionId)
 
+/* global __TAVILY_API_KEY__ */
+
+// ────────── Tavily 搜索（直连官方 API） ──────────
+export async function tavilySearch(params) {
+  const resp = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      api_key: __TAVILY_API_KEY__,
+      query: params.query,
+      topic: params.topic || 'news',
+      search_depth: params.searchDepth || params.search_depth || 'basic',
+      include_answer: params.includeAnswer || params.include_answer || 'basic',
+      max_results: params.maxResults || params.max_results || 10,
+      include_images: (params.includeImages || params.include_images) ?? true,
+      include_image_descriptions: (params.includeImageDescriptions) ?? true,
+      include_favicon: (params.includeFavicon) ?? true,
+      time_range: params.timeRange || params.time_range || '',
+    }),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(text || `HTTP ${resp.status}`)
+  }
+
+  return resp.json()
+}
+
