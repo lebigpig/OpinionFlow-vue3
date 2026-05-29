@@ -1,9 +1,0 @@
-org.dromara.workflow.domain.FlowSpelToFlowSpelVoMapper
-org.dromara.workflow.domain.vo.FlowCategoryVoToFlowCategoryMapper
-org.dromara.workflow.domain.bo.FlowCategoryBoToFlowCategoryMapper
-org.dromara.workflow.domain.vo.FlowSpelVoToFlowSpelMapper
-org.dromara.workflow.domain.bo.FlowSpelBoToFlowSpelMapper
-org.dromara.workflow.domain.bo.TestLeaveBoToTestLeaveMapper
-org.dromara.workflow.domain.vo.TestLeaveVoToTestLeaveMapper
-org.dromara.workflow.domain.TestLeaveToTestLeaveVoMapper
-org.dromara.workflow.domain.FlowCategoryToFlowCategoryVoMapper
