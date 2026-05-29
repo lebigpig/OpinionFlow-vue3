@@ -280,14 +280,14 @@ export function createNewSession() {
   return request('/api/chat-memory/new-session', { method: 'POST' })
 }
 
-export async function chatMemoryStream(content, { sessionId, systemPrompt, selectedContent, onDelta } = {}) {
+export async function chatMemoryStream(content, { sessionId, systemPrompt, selectedContent, webSearch, onDelta } = {}) {
   const resp = await fetch('/api/chat-memory/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
     },
-    body: JSON.stringify({ sessionId: sessionId || 'default', content, systemPrompt, selectedContent }),
+    body: JSON.stringify({ sessionId: sessionId || 'default', content, systemPrompt, selectedContent, webSearch: !!webSearch }),
   })
 
   if (!resp.ok) {

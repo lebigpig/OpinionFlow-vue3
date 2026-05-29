@@ -19,6 +19,7 @@ const {
   aiChatMessages,
   aiChatInput,
   aiChatSending,
+  aiChatWebSearchEnabled,
 
 } = storeToRefs(AiStore)
 const {loadAiCustomHistory,sendAiChatMessage,runAiCustom,clearAiChatMemory,loadAiCustomHistoryItem,deleteCustomHistory} = AiStore
@@ -84,6 +85,11 @@ loadAiCustomHistory()
               <button class="btn primary" type="button" @click="sendAiChatMessage" :disabled="aiChatSending || !aiChatInput.trim()">
                 {{ aiChatSending ? '发送中...' : '追问 AI' }}
               </button>
+              <label class="webSearchToggle" :class="{ active: aiChatWebSearchEnabled }">
+                <input type="checkbox" v-model="aiChatWebSearchEnabled" />
+                <span class="toggleIcon">🌐</span>
+                <span class="toggleText">联网搜索</span>
+              </label>
               <span class="muted" style="font-size:12px;">Ctrl+Enter 发送</span>
             </div>
           </div>
@@ -122,6 +128,11 @@ loadAiCustomHistory()
       <div class="actionGroup">
         <button class="btn primary" type="button" @click="runAiCustom" :disabled="aiCustomLoading">发送给 AI 分析</button>
         <button class="btn" type="button" @click="clearAiChatMemory">清除记忆</button>
+        <label class="webSearchToggle" :class="{ active: aiChatWebSearchEnabled }">
+          <input type="checkbox" v-model="aiChatWebSearchEnabled" />
+          <span class="toggleIcon">🌐</span>
+          <span class="toggleText">联网搜索</span>
+        </label>
       </div>
 
       <div v-if="aiCustomLoading" class="aiProgress">
@@ -157,5 +168,31 @@ loadAiCustomHistory()
 </template>
 
 <style scoped>
-
+.webSearchToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color, #dcdfe6);
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+  transition: all 0.2s;
+  background: var(--bg-secondary, #f5f5f5);
+}
+.webSearchToggle input[type="checkbox"] {
+  display: none;
+}
+.webSearchToggle.active {
+  border-color: #409eff;
+  background: #ecf5ff;
+  color: #409eff;
+}
+.toggleIcon {
+  font-size: 14px;
+}
+.toggleText {
+  font-size: 12px;
+}
 </style>

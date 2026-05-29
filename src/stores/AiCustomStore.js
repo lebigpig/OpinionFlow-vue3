@@ -26,6 +26,8 @@ export const useAiStore = defineStore('ai_custom', () => {
     const aiChatInput = ref('')
     const aiChatSending = ref(false)
     const aiChatError = ref('')
+    /** 联网搜索开关（Tavily） */
+    const aiChatWebSearchEnabled = ref(false)
 
 
     const aiCustomPrompt = ref('')
@@ -159,6 +161,7 @@ export const useAiStore = defineStore('ai_custom', () => {
             await chatMemoryStream(fullContent, {
                 sessionId: newSessionId,
                 selectedContent: aiCustomSelectedContent.value || undefined,
+                webSearch: aiChatWebSearchEnabled.value,
                 onDelta: (delta) => {
                     aiChatMessages.value[assistantIdx].content += delta
                     nextTick(() => {
@@ -261,6 +264,7 @@ export const useAiStore = defineStore('ai_custom', () => {
             await chatMemoryStream(msg, {
                 sessionId: chatSessionId,
                 selectedContent: aiCustomSelectedContent.value || undefined,
+                webSearch: aiChatWebSearchEnabled.value,
                 onDelta: (delta) => {
                     reply += delta
                     aiChatMessages.value[assistantIdx].content = reply
@@ -296,6 +300,7 @@ export const useAiStore = defineStore('ai_custom', () => {
         aiChatSending,
         aiChatError,
         aiChatContainer,
+        aiChatWebSearchEnabled,
 
         loadAiCustomHistory,
         loadAiCustomHistoryItem,
