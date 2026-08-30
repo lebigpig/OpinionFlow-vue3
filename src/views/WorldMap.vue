@@ -34,18 +34,21 @@
           </template>
         </div>
         <div class="legend">
-          <span
-              v-for="k in legendTypes"
-              :key="k"
-              class="legendItem draggable"
-              :title="'拖拽「' + TYPE_META[k].label + '」到地图指定位置'"
-              @mousedown.prevent="startLegendDrag(k, $event)"
-              @touchstart.prevent="startLegendDrag(k, $event)"
-          >
-            <span v-if="isSvgType(k)" class="legendIcon" v-html="typeSvg(k)"></span>
-            <span v-else class="legendEmoji">{{ TYPE_META[k].icon }}</span>
-            <b>{{ TYPE_META[k].label }}</b>
-          </span>
+          <div v-for="g in legendGroups" :key="g.name" class="legendGroup">
+            <span class="legendGroupName">{{ g.name }}</span>
+            <span
+                v-for="k in g.types"
+                :key="k"
+                class="legendItem draggable"
+                :title="'拖拽「' + TYPE_META[k].label + '」到地图指定位置'"
+                @mousedown.prevent="startLegendDrag(k, $event)"
+                @touchstart.prevent="startLegendDrag(k, $event)"
+            >
+              <span v-if="isSvgType(k)" class="legendIcon" v-html="typeSvg(k)"></span>
+              <span v-else class="legendEmoji">{{ TYPE_META[k].icon }}</span>
+              {{ TYPE_META[k].label }}
+            </span>
+          </div>
           <span class="legendHint">长按图例图标拖到地图目标位置松手即可添加</span>
         </div>
       </div>
@@ -90,7 +93,9 @@
           <div class="formRow">
             <label>组件类型</label>
             <el-select v-model="addType" style="flex:1">
-              <el-option v-for="(m, k) in TYPE_META" :key="k" :label="m.label" :value="k" />
+              <el-option-group v-for="g in legendGroups" :key="g.name" :label="g.name">
+                <el-option v-for="k in g.types" :key="k" :label="TYPE_META[k].label" :value="k" />
+              </el-option-group>
             </el-select>
           </div>
           <div class="formRow">
@@ -134,7 +139,7 @@ import am5themes_Animated from '@amcharts/amcharts5/themes/Animated'
 import am5geodata_worldLow from '@amcharts/amcharts5-geodata/worldLow'
 import { useWorldMapStore, TYPE_META } from '@/stores/WorldMapStore.js'
 import { SUB_MAPS, IMPORTANT_CITIES } from '@/lib/worldMapData.js'
-import { MINING_SVG, OIL_SVG } from '@/lib/worldMapIcons.js'
+import { MINING_SVG, OIL_SVG, ZINC_SVG, ALUMINUM_SVG, SOYBEAN_SVG } from '@/lib/worldMapIcons.js'
 import { getCountryName } from '@/lib/worldCountries.js'
 import { storeToRefs } from 'pinia'
 
@@ -142,16 +147,34 @@ const store = useWorldMapStore()
 const { components, selectedCountry, agentInput, agentLog, agentRunning, agentUseAI } = storeToRefs(store)
 
 const mapEl = ref(null)
-const addType = ref('marker')
+const addType = ref('mining')
 const addTitle = ref('')
 const addValue = ref(null)
 const addColor = ref('#409eff')
 const viewingCountry = ref(null) // null=世界视图，否则为进入的 ISO2 国家
 const dragActive = ref(false) // 拖拽悬停高亮
-const legendTypes = ['mining', 'oil', 'marker', 'bar', 'pie', 'line', 'label']
 
-function isSvgType(k) { return k === 'mining' || k === 'oil' }
-function typeSvg(k) { return k === 'mining' ? MINING_SVG : OIL_SVG }
+// 图例与下拉的分组结构
+const legendGroups = [
+  { name: '采矿', types: ['mining'] },
+  { name: '石油开采', types: ['oil'] },
+  { name: '农产品', types: ['corn', 'wheat', 'soybean', 'coffee', 'cocoa', 'cotton', 'sugar', 'orangeJuice', 'liveCattle', 'leanHogs'] },
+  { name: '工业金属', types: ['copper', 'aluminum', 'zinc', 'nickel', 'lead', 'tin', 'ironOre'] },
+  { name: '贵金属', types: ['gold', 'silver', 'platinum', 'palladium'] },
+  { name: '能源', types: ['coal', 'naturalGas', 'crudeOil', 'gasoline', 'propane', 'ethanol'] },
+  { name: '港口与航线', types: ['port', 'shipping'] },
+]
+
+function svgForType(k) {
+  if (k === 'mining') return MINING_SVG
+  if (k === 'oil') return OIL_SVG
+  if (k === 'zinc') return ZINC_SVG
+  if (k === 'aluminum') return ALUMINUM_SVG
+  if (k === 'soybean') return SOYBEAN_SVG
+  return ''
+}
+function isSvgType(k) { return !!svgForType(k) }
+function typeSvg(k) { return svgForType(k) }
 
 // 图例项开始拖拽：记录组件类型，并创建跟随鼠标的幽灵图标
 let dragGhostEl = null
@@ -235,8 +258,8 @@ watch(addType, (t) => { addColor.value = typeDefaultColor(t) }, { immediate: tru
 
 // ── 组件图标构建 ──────────────────────────────────────────────────
 function buildIcon(root, type, color) {
-  if (type === 'mining' || type === 'oil') {
-    const svg = type === 'mining' ? MINING_SVG : OIL_SVG
+  if (isSvgType(type)) {
+    const svg = svgForType(type)
     const cont = am5.Container.new(root, {})
     cont.children.push(am5.Circle.new(root, {
       radius: 13,
@@ -284,6 +307,24 @@ function buildIcon(root, type, color) {
   }
   if (type === 'label') {
     return am5.Circle.new(root, { radius: 6, fill: color, stroke: am5.color(0xffffff), strokeWidth: 2 })
+  }
+  // 商品 / 港口 / 航线 等：白色圆底 + emoji
+  const meta = TYPE_META[type]
+  if (meta && meta.icon) {
+    const cont = am5.Container.new(root, {})
+    cont.children.push(am5.Circle.new(root, {
+      radius: 13,
+      fill: color,
+      fillOpacity: 0.22,
+      stroke: color,
+      strokeWidth: 1.5,
+    }))
+    cont.children.push(am5.Label.new(root, {
+      text: meta.icon,
+      fontSize: 16,
+      x: 0, y: 0, centerX: am5.p50, centerY: am5.p50,
+    }))
+    return cont
   }
   // marker
   return am5.Circle.new(root, { radius: 8, fill: color, stroke: am5.color(0xffffff), strokeWidth: 2 })
@@ -580,13 +621,28 @@ onBeforeUnmount(() => {
 
 .legend {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-direction: column;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 6px;
   padding: 10px 16px;
   border-top: 1px solid var(--border-color-light, #eee);
   font-size: 13px;
   background: var(--panel-bg-2, #fafafa);
+}
+.legendGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  width: 100%;
+}
+.legendGroupName {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin-right: 2px;
+  min-width: 64px;
 }
 .legendItem {
   display: inline-flex;

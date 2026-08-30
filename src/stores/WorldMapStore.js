@@ -12,14 +12,49 @@ function uid() {
   return 'c' + Date.now().toString(36) + '_' + (uidCounter++)
 }
 
+// 商品 / 港口 / 航线 等图例与组件类型定义
+// [key, 中文名, emoji, 颜色]
+const COMMODITY_TYPES = [
+  // 农产品
+  ['corn', '玉米', '🌽', '#f0b429'],
+  ['wheat', '小麦', '🌾', '#d9a441'],
+  ['soybean', '大豆', '🫘', '#b5912f'],
+  ['coffee', '咖啡', '☕', '#6f4e37'],
+  ['cocoa', '可可', '🍫', '#7b3f00'],
+  ['cotton', '棉花', '☁️', '#c9d2da'],
+  ['sugar', '糖', '🍬', '#e91e63'],
+  ['orangeJuice', '橙汁', '🍊', '#ff9800'],
+  ['liveCattle', '活牛', '🐄', '#8d6e63'],
+  ['leanHogs', '活猪', '🐖', '#f48fb1'],
+  // 工业金属
+  ['copper', '铜', '🧡', '#b87333'],
+  ['aluminum', '铝', '⬜', '#b0bec5'],
+  ['zinc', '锌', '⚪', '#9e9e9e'],
+  ['nickel', '镍', '⚙️', '#78909c'],
+  ['lead', '铅', '⬛', '#616161'],
+  ['tin', '锡', '🥫', '#cfd8dc'],
+  ['ironOre', '铁矿石', '🪨', '#795548'],
+  // 贵金属
+  ['gold', '金', '🥇', '#ffd700'],
+  ['silver', '银', '🥈', '#b0bec5'],
+  ['platinum', '铂金', '💠', '#e0e0e0'],
+  ['palladium', '钯金', '💎', '#90a4ae'],
+  // 能源
+  ['coal', '煤炭', '⛰️', '#37474f'],
+  ['naturalGas', '天然气', '🔥', '#ff7043'],
+  ['crudeOil', '原油', '🛢️', '#263238'],
+  ['gasoline', '汽油', '⛽', '#fdd835'],
+  ['propane', '丙烷', '🧯', '#b0bec5'],
+  ['ethanol', '乙醇', '🧪', '#9ccc65'],
+  // 港口 / 航线
+  ['port', '港口', '⚓', '#039be5'],
+  ['shipping', '轮船航线', '🚢', '#29b6f6'],
+]
+
 export const TYPE_META = {
-  marker: { label: '标记', color: '#409eff', icon: '📍' },
-  bar: { label: '柱状图', color: '#67c23a', icon: '📊' },
-  pie: { label: '饼图', color: '#e6a23c', icon: '🥧' },
-  line: { label: '折线图', color: '#f56c6c', icon: '📈' },
-  label: { label: '标签', color: '#909399', icon: '🏷️' },
   mining: { label: '采矿', color: '#8d6e63', icon: '⛏️' },
   oil: { label: '石油开采', color: '#546e7a', icon: '🛢️' },
+  ...Object.fromEntries(COMMODITY_TYPES.map(([k, label, icon, color]) => [k, { label, color, icon }])),
 }
 
 export const useWorldMapStore = defineStore('worldMap', () => {
@@ -168,14 +203,25 @@ export const useWorldMapStore = defineStore('worldMap', () => {
 
     const typeRules = [
       { t: 'mining', kws: ['采矿', '矿山', '矿区', 'mining'] },
-      { t: 'oil', kws: ['石油', '油田', '原油', '油井', 'oil'] },
-      { t: 'bar', kws: ['柱状', '条形', 'bar'] },
-      { t: 'pie', kws: ['饼图', 'pie', '占比', '份额', '结构'] },
-      { t: 'line', kws: ['折线', 'line', '趋势'] },
-      { t: 'label', kws: ['标签', 'label', '文字'] },
-      { t: 'marker', kws: ['标记', 'marker', '图标'] },
+      { t: 'oil', kws: ['石油', '油田', '原油开采', 'oil'] },
+      { t: 'coal', kws: ['煤炭', 'coal'] },
+      { t: 'crudeOil', kws: ['原油', 'crude'] },
+      { t: 'naturalGas', kws: ['天然气', 'natural gas'] },
+      { t: 'gasoline', kws: ['汽油'] },
+      { t: 'corn', kws: ['玉米', 'corn'] },
+      { t: 'wheat', kws: ['小麦', 'wheat'] },
+      { t: 'soybean', kws: ['大豆', 'soybean'] },
+      { t: 'coffee', kws: ['咖啡', 'coffee'] },
+      { t: 'cocoa', kws: ['可可', 'cocoa'] },
+      { t: 'cotton', kws: ['棉花', 'cotton'] },
+      { t: 'sugar', kws: ['糖', 'sugar'] },
+      { t: 'gold', kws: ['黄金', '金价', 'gold'] },
+      { t: 'silver', kws: ['白银', '银价', 'silver'] },
+      { t: 'copper', kws: ['铜价', '精铜', 'copper'] },
+      { t: 'port', kws: ['港口', 'port'] },
+      { t: 'shipping', kws: ['航线', '轮船', 'shipping', 'shipping route'] },
     ]
-    let type = 'marker'
+    let type = 'mining'
     for (const r of typeRules) {
       if (r.kws.some(k => text.includes(k))) { type = r.t; break }
     }
@@ -205,7 +251,7 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     if (!data.countryId) return null
     const country = getCountryName(data.countryId)
     if (!country) return null
-    const type = ['bar', 'pie', 'line', 'marker', 'label', 'mining', 'oil'].includes(data.type) ? data.type : 'marker'
+    const type = TYPE_META[data.type] ? data.type : 'mining'
     return { country, type, title: data.title || '', value: data.value ?? null }
   }
 
