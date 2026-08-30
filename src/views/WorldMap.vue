@@ -80,39 +80,6 @@
           </div>
         </div>
 
-        <!-- 选中国家 + 手动添加 -->
-        <div class="panelSection">
-          <div class="panelTitle">📍 选中国家</div>
-          <div v-if="selectedCountry" class="countryBox">
-            <div class="countryName">{{ selectedCountry.zh || selectedCountry.en }}</div>
-            <div class="muted mono">ISO：{{ selectedCountry.id }} / {{ selectedCountry.en }}</div>
-            <button class="btn sm" type="button" @click="clearSelect">取消选择</button>
-          </div>
-          <div v-else class="muted">点击地图上的国家区域以选中整个国家</div>
-
-          <div class="formRow">
-            <label>组件类型</label>
-            <el-select v-model="addType" style="flex:1">
-              <el-option-group v-for="g in legendGroups" :key="g.name" :label="g.name">
-                <el-option v-for="k in g.types" :key="k" :label="TYPE_META[k].label" :value="k" />
-              </el-option-group>
-            </el-select>
-          </div>
-          <div class="formRow">
-            <label>名称</label>
-            <el-input v-model="addTitle" placeholder="如 GDP" style="flex:1" />
-          </div>
-          <div class="formRow">
-            <label>数值</label>
-            <el-input-number v-model="addValue" :controls="false" placeholder="可选" style="flex:1" />
-          </div>
-          <div class="formRow">
-            <label>颜色</label>
-            <input type="color" v-model="addColor" class="colorInput" />
-          </div>
-          <button class="btn primary" type="button" @click="handleAdd" :disabled="!selectedCountry">添加到当前国家</button>
-        </div>
-
         <!-- 已添加组件 -->
         <div class="panelSection">
           <div class="panelTitle">🧩 已添加组件（{{ components.length }}）</div>
@@ -147,9 +114,6 @@ const store = useWorldMapStore()
 const { components, selectedCountry, agentInput, agentLog, agentRunning, agentUseAI } = storeToRefs(store)
 
 const mapEl = ref(null)
-const addType = ref('mining')
-const addTitle = ref('')
-const addValue = ref(null)
 const addColor = ref('#409eff')
 const viewingCountry = ref(null) // null=世界视图，否则为进入的 ISO2 国家
 const dragActive = ref(false) // 拖拽悬停高亮
@@ -252,9 +216,6 @@ let polygonSeries = null
 let citySeries = null
 let pointSeries = null
 let selectedPolygon = null
-
-function typeDefaultColor(t) { return TYPE_META[t]?.color || '#409eff' }
-watch(addType, (t) => { addColor.value = typeDefaultColor(t) }, { immediate: true })
 
 // ── 组件图标构建 ──────────────────────────────────────────────────
 function buildIcon(root, type, color) {
@@ -522,14 +483,7 @@ function doClear() {
   store.pushLog('🗑 已清空全部组件')
 }
 
-function handleAdd() {
-  const r = store.addToSelected({ type: addType.value, title: addTitle.value, value: addValue.value, color: addColor.value })
-  store.pushLog(r.msg)
-  if (r.ok) { addTitle.value = ''; addValue.value = null }
-}
-
 function removeComp(id) { store.removeComponent(id) }
-function clearSelect() { store.selectCountry(null) }
 
 onMounted(() => {
   store.loadLocal()
