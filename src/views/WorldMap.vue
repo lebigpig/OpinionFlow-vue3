@@ -58,12 +58,12 @@
         <!-- 智能 Agent -->
         <div class="panelSection">
           <div class="panelTitle">🤖 智能 Agent</div>
-          <div class="muted hint">输入指令，Agent 会自主把组件添加到指定国家，如："在中国添加GDP柱状图，数值500"</div>
+          <div class="muted hint">输入指令让 Agent 在地图上放置组件，支持指定经纬度或地名，如："在 39.9, 116.4 添加 金" 或 "在中国添加玉米"</div>
           <el-input
               v-model="agentInput"
               type="textarea"
               :rows="3"
-              placeholder="例如：在日本添加折线图，GDP 趋势 1200"
+              placeholder="例如：在 39.9, 116.4 添加 金 / 在日本添加原油"
               @keyup.ctrl.enter="runAgent"
           />
           <div class="actionRow">
@@ -106,7 +106,7 @@ import am5themes_Animated from '@amcharts/amcharts5/themes/Animated'
 import am5geodata_worldLow from '@amcharts/amcharts5-geodata/worldLow'
 import { useWorldMapStore, TYPE_META } from '@/stores/WorldMapStore.js'
 import { SUB_MAPS, IMPORTANT_CITIES } from '@/lib/worldMapData.js'
-import { MINING_SVG, OIL_SVG, ZINC_SVG, ALUMINUM_SVG, SOYBEAN_SVG } from '@/lib/worldMapIcons.js'
+import { ZINC_SVG, ALUMINUM_SVG, SOYBEAN_SVG } from '@/lib/worldMapIcons.js'
 import { getCountryName } from '@/lib/worldCountries.js'
 import { storeToRefs } from 'pinia'
 
@@ -120,18 +120,14 @@ const dragActive = ref(false) // 拖拽悬停高亮
 
 // 图例与下拉的分组结构
 const legendGroups = [
-  { name: '采矿', types: ['mining'] },
-  { name: '石油开采', types: ['oil'] },
   { name: '农产品', types: ['corn', 'wheat', 'soybean', 'coffee', 'cocoa', 'cotton', 'sugar', 'orangeJuice', 'liveCattle', 'leanHogs'] },
-  { name: '工业金属', types: ['copper', 'aluminum', 'zinc', 'nickel', 'lead', 'tin', 'ironOre'] },
+  { name: '工业金属', types: ['copper', 'cobalt', 'aluminum', 'zinc', 'nickel', 'lead', 'tin', 'ironOre'] },
   { name: '贵金属', types: ['gold', 'silver', 'platinum', 'palladium'] },
   { name: '能源', types: ['coal', 'naturalGas', 'crudeOil', 'gasoline', 'propane', 'ethanol'] },
   { name: '港口与航线', types: ['port', 'shipping'] },
 ]
 
 function svgForType(k) {
-  if (k === 'mining') return MINING_SVG
-  if (k === 'oil') return OIL_SVG
   if (k === 'zinc') return ZINC_SVG
   if (k === 'aluminum') return ALUMINUM_SVG
   if (k === 'soybean') return SOYBEAN_SVG
@@ -458,7 +454,10 @@ watch(components, () => {
 }, { deep: true })
 
 // ── 事件处理 ──────────────────────────────────────────────────────
-async function runAgent() { await store.agentRun() }
+async function runAgent() {
+  await store.agentRun()
+  refreshPoints() // 强制刷新点图层，与拖拽放置一致，确保 Agent 添加的图标立即渲染
+}
 
 async function doSave() {
   try {

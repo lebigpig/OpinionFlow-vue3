@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { saveEchartJson, listEchartPage, worldMapAgent } from '@/lib/api.js'
 import { getCentroid, getCountryName, matchCountry } from '@/lib/worldCountries.js'
+import { IMPORTANT_CITIES } from '@/lib/worldMapData.js'
 
 const STORAGE_KEY = 'opinionflow_worldmap_v1'
 
@@ -28,6 +29,7 @@ const COMMODITY_TYPES = [
   ['leanHogs', '活猪', '🐖', '#f48fb1'],
   // 工业金属
   ['copper', '铜', '🧡', '#b87333'],
+  ['cobalt', '钴', '🔷', '#1565c0'],
   ['aluminum', '铝', '⬜', '#b0bec5'],
   ['zinc', '锌', '⚪', '#9e9e9e'],
   ['nickel', '镍', '⚙️', '#78909c'],
@@ -52,10 +54,76 @@ const COMMODITY_TYPES = [
 ]
 
 export const TYPE_META = {
-  mining: { label: '采矿', color: '#8d6e63', icon: '⛏️' },
-  oil: { label: '石油开采', color: '#546e7a', icon: '🛢️' },
   ...Object.fromEntries(COMMODITY_TYPES.map(([k, label, icon, color]) => [k, { label, color, icon }])),
 }
+
+// 解析用户指令中的经纬度（中文纬度/经度、lat/lng、或 "纬度,经度"）
+export function parseLatLng(text) {
+  if (!text) return null
+  let lat = null
+  let lng = null
+  const latZh = text.match(/纬度[:：]?\s*(-?\d+(?:\.\d+)?)/)
+  const lngZh = text.match(/经度[:：]?\s*(-?\d+(?:\.\d+)?)/)
+  const latEn = text.match(/\blat(?:itude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)/i)
+  const lngEn = text.match(/\blon(?:gitude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)/i)
+  lat = (latZh && latZh[1]) || (latEn && latEn[1]) || null
+  lng = (lngZh && lngZh[1]) || (lngEn && lngEn[1]) || null
+  if (lat == null || lng == null) {
+    const m = text.match(/(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)/)
+    if (m) { lat = m[1]; lng = m[2] }
+  }
+  if (lat == null || lng == null) return null
+  lat = Number(lat)
+  lng = Number(lng)
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+  return { lat, lng }
+}
+
+// 供 AI 参考的地图坐标表（城市名: 纬度, 经度），让 AI 能给出精确经纬度
+export function buildCoordTable() {
+  return IMPORTANT_CITIES
+    .map(c => `${c.zh}(${c.en}): ${c.lat}, ${c.lng}`)
+    .join('；')
+}
+
+// 精简 key → 内部类型 key 映射（供 AI 返回的英文 key 使用）
+const TYPE_ALIASES = {
+  orange: 'orangeJuice',
+  beef: 'liveCattle',
+  pork: 'leanHogs',
+  iron: 'ironOre',
+  gas: 'naturalGas',
+  natural: 'naturalGas',
+  oil: 'crudeOil',
+}
+
+// 把用户/AI 给的类型名（key、别名或中文名）归一化为 TYPE_META 的 key
+export function normalizeType(input) {
+  if (!input) return null
+  const s = String(input).trim()
+  if (TYPE_META[s]) return s
+  if (TYPE_ALIASES[s]) return TYPE_ALIASES[s]
+  // 精确中文名匹配
+  for (const k in TYPE_META) {
+    if (TYPE_META[k].label === s) return k
+  }
+  // 中文名包含匹配（如 "黄金" 命中 "金"）
+  for (const k in TYPE_META) {
+    if (s.includes(TYPE_META[k].label)) return k
+  }
+  return null
+}
+
+// 在用户文本中直接识别出现的类型（按名称长度降序，优先匹配较长词，避免单字误判）
+export function detectType(text) {
+  if (!text) return null
+  const keys = Object.keys(TYPE_META).sort((a, b) => TYPE_META[b].label.length - TYPE_META[a].label.length)
+  for (const k of keys) {
+    if (text.includes(TYPE_META[k].label)) return k
+  }
+  return null
+}
+
 
 export const useWorldMapStore = defineStore('worldMap', () => {
   const components = ref([])
@@ -198,12 +266,12 @@ export const useWorldMapStore = defineStore('worldMap', () => {
 
   // ── 本地规则解析（离线可用） ─────────────────────────────────────
   function parseAgentIntent(text) {
-    const country = matchCountry(text)
-    if (!country) return null
+    const latlng = parseLatLng(text)
+    const country = latlng ? null : matchCountry(text)
+    if (!latlng && !country) return null
 
     const typeRules = [
-      { t: 'mining', kws: ['采矿', '矿山', '矿区', 'mining'] },
-      { t: 'oil', kws: ['石油', '油田', '原油开采', 'oil'] },
+      { t: 'ironOre', kws: ['铁矿石', '铁矿', 'iron ore'] },
       { t: 'coal', kws: ['煤炭', 'coal'] },
       { t: 'crudeOil', kws: ['原油', 'crude'] },
       { t: 'naturalGas', kws: ['天然气', 'natural gas'] },
@@ -218,12 +286,15 @@ export const useWorldMapStore = defineStore('worldMap', () => {
       { t: 'gold', kws: ['黄金', '金价', 'gold'] },
       { t: 'silver', kws: ['白银', '银价', 'silver'] },
       { t: 'copper', kws: ['铜价', '精铜', 'copper'] },
+      { t: 'cobalt', kws: ['钴', 'cobalt'] },
       { t: 'port', kws: ['港口', 'port'] },
       { t: 'shipping', kws: ['航线', '轮船', 'shipping', 'shipping route'] },
     ]
-    let type = 'mining'
-    for (const r of typeRules) {
-      if (r.kws.some(k => text.includes(k))) { type = r.t; break }
+    let type = detectType(text)
+    if (!type) {
+      for (const r of typeRules) {
+        if (r.kws.some(k => text.includes(k))) { type = r.t; break }
+      }
     }
 
     let value = null
@@ -231,68 +302,147 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     if (m) value = Number(m[1])
 
     let title = ''
-    const tm = text.match(/(?:添加|加上|放置|标注|加一个|来个)\s*([\u4e00-\u9fa5A-Za-z]{2,12})/)
+    const tm = text.match(/(?:添加|加上|放置|标注|加一个|来个)\s*([\u4e00-\u9fa5A-Za-z0-9]{1,12})/)
     if (tm) title = tm[1]
 
+    // 若关键词未命中，用标题名反向匹配类型（如 "添加 金" → gold）
+    if (!type && title) type = normalizeType(title)
+    if (!type) type = 'ironOre'
+
+    if (latlng) return { latlng, type, value, title }
     return { country, type, value, title }
   }
 
-  // ── 后端 AI 解析（智能 Agent） ───────────────────────────────────
-  async function agentParseWithAI(text) {
-    const systemPrompt =
-      '你是一个世界格局地图 Agent。请把用户的中文指令解析为 JSON，' +
-      '字段：{"countryId":"ISO2代码","type":"bar|pie|line|marker|label","title":"简短中文名称","value":数字或null}。' +
-      '只能输出一个 JSON 对象，不要输出其它文字。若无法确定国家，返回 {"countryId":null}。'
-    const resp = await worldMapAgent(text, systemPrompt)
-    const result = resp?.result || ''
-    const jm = result.match(/\{[\s\S]*\}/)
-    if (!jm) throw new Error('AI 返回内容不含 JSON')
-    const data = JSON.parse(jm[0])
-    if (!data.countryId) return null
-    const country = getCountryName(data.countryId)
-    if (!country) return null
-    const type = TYPE_META[data.type] ? data.type : 'mining'
-    return { country, type, title: data.title || '', value: data.value ?? null }
+  // ── 后端 AI 解析（智能 Agent，支持多条 → 返回多个 plan） ───────────
+  // 从 AI 返回文本中提取所有 JSON 对象（支持 JSON 数组 或 多个 {...}）
+  function extractJsonItems(text) {
+    if (!text) return []
+    const trimmed = text.trim()
+    // 整体是 JSON 数组
+    try {
+      const arr = JSON.parse(trimmed)
+      if (Array.isArray(arr)) return arr
+    } catch (e) { /* ignore */ }
+    // 逐个提取 {...}
+    const items = []
+    const re = /\{[\s\S]*?\}/g
+    let m
+    while ((m = re.exec(text)) !== null) {
+      try { items.push(JSON.parse(m[0])) } catch (e) { /* ignore */ }
+    }
+    return items
   }
 
-  // ── Agent 执行入口 ──────────────────────────────────────────────
+  // 单个 JSON → plan
+  function planFromJson(item) {
+    if (!item || typeof item !== 'object') return null
+    const type = normalizeType(item.type) || normalizeType(item.title) || 'ironOre'
+    let latlng = null
+    const lat = Number(item.latitude)
+    const lng = Number(item.longitude)
+    if (isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      latlng = { lat, lng }
+    }
+    let country = null
+    if (!latlng && item.countryId) {
+      country = getCountryName(item.countryId)
+    }
+    if (!latlng && !country) return null
+    return { country, latlng, type, title: item.title || '', value: item.value ?? null }
+  }
+
+  async function agentParsePlansWithAI(text) {
+    const systemPrompt =
+      '你是地图标注 Agent。将中文指令解析为单个或多个 JSON：\n' +
+      '{"countryId":"ISO2或null","type":"组件key","title":"简短中文名","value":数字或null,"latitude":纬度或null,"longitude":经度或null}\n\n' +
+      '组件key：corn,wheat,soybean,coffee,cocoa,cotton,sugar,orange,beef,pork,copper,cobalt,aluminum,zinc,nickel,lead,tin,iron,gold,silver,platinum,palladium,coal,gas,natural,oil,gasoline,propane,ethanol,port,shipping\n\n' +
+      '经纬度规则：用户给具体数值则用；否则 latitude/longitude 为 null。'
+    const resp = await worldMapAgent(text, systemPrompt)
+    const items = extractJsonItems(resp?.result || '')
+    return items.map(planFromJson).filter(Boolean)
+  }
+
+
+  // ── 本地多行解析：每行解析一个 plan ──────────────────────────────
+  function parseAgentIntents(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    const plans = []
+    for (const line of lines) {
+      const p = parseAgentIntent(line)
+      if (p) plans.push(p)
+    }
+    return plans
+  }
+
+  // plan 去重键（经纬度+类型 或 国家+类型）
+  function planKey(p) {
+    if (p.latlng) return `ll:${p.latlng.lat.toFixed(3)},${p.latlng.lng.toFixed(3)}:${p.type}`
+    return `c:${p.country?.id || '?'}:${p.type}`
+  }
+
+  // ── Agent 执行入口（支持多条 → 逐个放置） ────────────────────────
   async function agentRun() {
     const text = agentInput.value.trim()
     if (!text) return
     if (agentRunning.value) return
     agentRunning.value = true
     try {
-      let plan = null
+      let plans = []
       if (agentUseAI.value) {
         try {
-          plan = await agentParseWithAI(text)
+          plans = await agentParsePlansWithAI(text)
         } catch (e) {
-          pushLog(`⚠️ AI 解析失败（${e?.message || e}），自动改用本地规则解析`)
+          pushLog(`⚠️ AI 解析失败（${e?.message || e}），改用本地规则解析`)
         }
       }
-      if (!plan) plan = parseAgentIntent(text)
+      // 本地逐行解析：AI 为空时作为主解析；AI 非空时补充 AI 遗漏的行
+      const localPlans = parseAgentIntents(text)
+      if (!plans.length) {
+        plans = localPlans
+      } else {
+        const seen = new Set(plans.map(planKey))
+        for (const lp of localPlans) {
+          if (!seen.has(planKey(lp))) { plans.push(lp); seen.add(planKey(lp)) }
+        }
+      }
 
-      if (!plan || !plan.country) {
-        pushLog('❌ 未能识别目标国家，试试："在中国添加GDP柱状图，数值500"')
+      if (!plans.length) {
+        pushLog('❌ 未能识别任何位置，试试："在 39.9, 116.4 添加 金"')
         return
       }
-      const c = plan.country
-      addComponent({
-        countryId: c.id,
-        countryName: c.en,
-        zh: c.zh,
-        lat: c.centroid[1],
-        lng: c.centroid[0],
-        type: plan.type,
-        title: plan.title || '',
-        value: plan.value,
-        color: TYPE_META[plan.type]?.color || '#409eff',
-      })
-      const meta = TYPE_META[plan.type] || { label: plan.type }
-      const parts = [`✅ Agent 已在 ${c.zh || c.en} (${c.id}) 添加「${meta.label}」`]
-      if (plan.title) parts.push(`名称「${plan.title}」`)
-      if (plan.value != null) parts.push(`数值 ${plan.value}`)
-      pushLog(parts.join('，'))
+
+      let okCount = 0
+      for (const plan of plans) {
+        const type = plan.type || 'ironOre'
+        const meta = TYPE_META[type] || { label: type }
+        if (plan.latlng) {
+          // 用户给定或 AI 推断出的精确经纬度 → 直接放置
+          addAtPosition({ lat: plan.latlng.lat, lng: plan.latlng.lng, type, title: plan.title || '', value: plan.value, color: meta.color })
+        } else {
+          // 国家中心点
+          const c = plan.country
+          addComponent({
+            countryId: c.id,
+            countryName: c.en,
+            zh: c.zh,
+            lat: c.centroid[1],
+            lng: c.centroid[0],
+            type,
+            title: plan.title || '',
+            value: plan.value,
+            color: meta.color,
+          })
+        }
+        okCount++
+        const where = plan.latlng
+          ? `经纬度 (${plan.latlng.lat}, ${plan.latlng.lng})`
+          : `${plan.country?.zh || plan.country?.en || ''} (${plan.country?.id || '?'})`
+        const parts = [`✅ 已在 ${where} 添加「${meta.label}」`]
+        if (plan.title) parts.push(`名称「${plan.title}」`)
+        if (plan.value != null) parts.push(`数值 ${plan.value}`)
+        pushLog(parts.join('，'))
+      }
+      pushLog(`📊 本轮共添加 ${okCount} 个组件`)
       agentInput.value = ''
     } finally {
       agentRunning.value = false
