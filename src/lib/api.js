@@ -104,6 +104,14 @@ export function aiParse(content) {
   })
 }
 
+// 世界格局地图智能 Agent：独立地址，解析自然语言指令为结构化 JSON
+export function worldMapAgent(content, systemPrompt) {
+  return request('/api/ai/world-map-agent', {
+    method: 'POST',
+    body: JSON.stringify({ content, systemPrompt }),
+  })
+}
+
 export async function aiParseStream(content, { onDelta, systemPrompt } = {}) {
   const resp = await fetch('/api/ai/parse/stream', {
     method: 'POST',

@@ -37,6 +37,7 @@ const routeNameToMenuKey = {
   industry: 'industry',
   ai_custom: 'ai_custom',
   comments: 'comments',
+  world: 'world',
   search: 'le_search',
   scripts: 'scripts',
   script_all: 'script_all',
@@ -71,6 +72,13 @@ const menuGroups = [
     ],
   },
   {
+    key: 'macro',
+    name: '宏观',
+    children: [
+      { key: 'world', name: '世界格局', to: '/macro/world' },
+    ],
+  },
+  {
 
     key:'search',
     name:'搜索引擎',
@@ -95,6 +103,7 @@ const groupOpen = reactive({
   news: true,
   realtime: true,
   analysis: true,
+  macro: true,
   search: true,
   scripts: true,
 })

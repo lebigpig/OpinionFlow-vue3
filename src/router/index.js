@@ -50,6 +50,13 @@ const routes = [
                 component: () => import('@/views/StockComments.vue')
             },
 
+            // 宏观模块
+            {
+                path: 'macro/world',
+                name: 'world',
+                component: () => import('@/views/WorldMap.vue')
+            },
+
             // 脚本运行模块
             {
                 path: 'scripts',
