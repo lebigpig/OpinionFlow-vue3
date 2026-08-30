@@ -2,7 +2,18 @@
   <div class="worldmapPage">
     <div class="topbar card">
       <div class="pageTitle">世界格局</div>
+      <div class="viewTag">
+        <template v-if="viewingCountry">
+          <span class="dot" style="background:#ff6b6b"></span>
+          <b>{{ selectedCountry?.zh || selectedCountry?.en || viewingCountry }}</b> 内部分区视图
+        </template>
+        <template v-else>
+          <span class="dot" style="background:#409eff"></span>
+          世界视图
+        </template>
+      </div>
       <div class="topbarActions">
+        <button v-if="viewingCountry" class="btn" type="button" @click="exitToWorld">← 返回世界</button>
         <button class="btn" type="button" @click="doSave">💾 保存到服务器</button>
         <button class="btn" type="button" @click="doLoad">📥 从服务器加载</button>
         <button class="btn danger" type="button" @click="doClear">🗑 清空全部</button>
@@ -11,11 +22,31 @@
 
     <div class="worldLayout">
       <!-- 世界地图 -->
-      <div class="mapCard card">
+      <div class="mapCard card" :class="{ dragActive }">
         <div ref="mapEl" class="map"></div>
-        <div v-if="selectedCountry" class="floatCountry">
-          <span class="dot" :style="{ background: addColor }"></span>
-          已选：{{ selectedCountry.zh || selectedCountry.en }}（{{ selectedCountry.id }}）
+        <div class="floatCountry">
+          <span v-if="selectedCountry" class="dot" :style="{ background: addColor }"></span>
+          <template v-if="selectedCountry">
+            当前：{{ selectedCountry.zh || selectedCountry.en }}（{{ selectedCountry.id }}）
+          </template>
+          <template v-else>
+            悬停国家/城市查看名称，点击城市可进入其内部分区
+          </template>
+        </div>
+        <div class="legend">
+          <span
+              v-for="k in legendTypes"
+              :key="k"
+              class="legendItem draggable"
+              :title="'拖拽「' + TYPE_META[k].label + '」到地图指定位置'"
+              @mousedown.prevent="startLegendDrag(k, $event)"
+              @touchstart.prevent="startLegendDrag(k, $event)"
+          >
+            <span v-if="isSvgType(k)" class="legendIcon" v-html="typeSvg(k)"></span>
+            <span v-else class="legendEmoji">{{ TYPE_META[k].icon }}</span>
+            <b>{{ TYPE_META[k].label }}</b>
+          </span>
+          <span class="legendHint">长按图例图标拖到地图目标位置松手即可添加</span>
         </div>
       </div>
 
@@ -102,6 +133,9 @@ import * as am5map from '@amcharts/amcharts5/map'
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated'
 import am5geodata_worldLow from '@amcharts/amcharts5-geodata/worldLow'
 import { useWorldMapStore, TYPE_META } from '@/stores/WorldMapStore.js'
+import { SUB_MAPS, IMPORTANT_CITIES } from '@/lib/worldMapData.js'
+import { MINING_SVG, OIL_SVG } from '@/lib/worldMapIcons.js'
+import { getCountryName } from '@/lib/worldCountries.js'
 import { storeToRefs } from 'pinia'
 
 const store = useWorldMapStore()
@@ -112,10 +146,87 @@ const addType = ref('marker')
 const addTitle = ref('')
 const addValue = ref(null)
 const addColor = ref('#409eff')
+const viewingCountry = ref(null) // null=世界视图，否则为进入的 ISO2 国家
+const dragActive = ref(false) // 拖拽悬停高亮
+const legendTypes = ['mining', 'oil', 'marker', 'bar', 'pie', 'line', 'label']
+
+function isSvgType(k) { return k === 'mining' || k === 'oil' }
+function typeSvg(k) { return k === 'mining' ? MINING_SVG : OIL_SVG }
+
+// 图例项开始拖拽：记录组件类型，并创建跟随鼠标的幽灵图标
+let dragGhostEl = null
+const dragType = ref('')
+
+function startLegendDrag(k, e) {
+  dragType.value = k
+  if (!dragGhostEl) {
+    dragGhostEl = document.createElement('div')
+    dragGhostEl.className = 'dragGhost'
+    document.body.appendChild(dragGhostEl)
+  }
+  dragGhostEl.textContent = `${TYPE_META[k].icon || ''} ${TYPE_META[k].label}`
+  dragGhostEl.style.display = 'block'
+  moveLegendGhost(e.clientX, e.clientY)
+  window.addEventListener('pointermove', onLegendPointerMove)
+  window.addEventListener('pointerup', onLegendPointerUp)
+  e.preventDefault()
+}
+
+function moveLegendGhost(x, y) {
+  if (dragGhostEl) {
+    dragGhostEl.style.left = (x + 12) + 'px'
+    dragGhostEl.style.top = (y + 12) + 'px'
+  }
+}
+
+function isOverMap(x, y) {
+  if (!mapEl.value) return false
+  const r = mapEl.value.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+function onLegendPointerMove(e) {
+  moveLegendGhost(e.clientX, e.clientY)
+  dragActive.value = isOverMap(e.clientX, e.clientY)
+}
+
+function onLegendPointerUp(e) {
+  window.removeEventListener('pointermove', onLegendPointerMove)
+  window.removeEventListener('pointerup', onLegendPointerUp)
+  if (dragGhostEl) dragGhostEl.style.display = 'none'
+  const k = dragType.value
+  dragType.value = ''
+  dragActive.value = false
+  if (!k || !TYPE_META[k] || !chart || !mapEl.value || !pointSeries) return
+
+  const r = mapEl.value.getBoundingClientRect()
+  const x = e.clientX - r.left
+  const y = e.clientY - r.top
+  if (x < 0 || y < 0 || x > r.width || y > r.height) {
+    store.pushLog('⚠️ 请在松开前把图标拖到地图范围内')
+    return
+  }
+  const geo = chart.invert({ x, y })
+  if (!geo || !isFinite(geo.latitude) || !isFinite(geo.longitude)) {
+    store.pushLog(`⚠️ 放置位置无效（像素 ${x.toFixed(0)},${y.toFixed(0)}），请拖到地图内部`)
+    return
+  }
+  store.addAtPosition({ lat: geo.latitude, lng: geo.longitude, type: k, color: TYPE_META[k].color })
+  // 显式刷新点图层，确保新组件立即渲染
+  refreshPoints()
+  // 将地图中心移动到落点，便于确认组件已生成
+  chart.zoomToGeoPoint({ latitude: geo.latitude, longitude: geo.longitude }, Math.max(chart.get('zoomLevel') || 1, 1), true, 300)
+  store.pushLog(`📌 已添加「${TYPE_META[k].label}」@(${geo.latitude.toFixed(2)}, ${geo.longitude.toFixed(2)})，地图组件共 ${components.value.length} 个`)
+}
+
+function refreshPoints() {
+  if (pointSeries) pointSeries.data.setAll(buildPointData())
+}
 
 let root = null
 let chart = null
 let polygonSeries = null
+let citySeries = null
 let pointSeries = null
 let selectedPolygon = null
 
@@ -124,6 +235,23 @@ watch(addType, (t) => { addColor.value = typeDefaultColor(t) }, { immediate: tru
 
 // ── 组件图标构建 ──────────────────────────────────────────────────
 function buildIcon(root, type, color) {
+  if (type === 'mining' || type === 'oil') {
+    const svg = type === 'mining' ? MINING_SVG : OIL_SVG
+    const cont = am5.Container.new(root, {})
+    cont.children.push(am5.Circle.new(root, {
+      radius: 13,
+      fill: am5.color(0xffffff),
+      fillOpacity: 0.9,
+      stroke: color,
+      strokeWidth: 1.5,
+    }))
+    cont.children.push(am5.Picture.new(root, {
+      width: 20,
+      height: 20,
+      src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+    }))
+    return cont
+  }
   if (type === 'bar') {
     const bars = [
       { x: -13, h: 10, a: 0.6 }, { x: -4, h: 20, a: 0.85 }, { x: 5, h: 14, a: 1 },
@@ -168,6 +296,9 @@ function makeBullet(root, dataItem) {
   const container = am5.Container.new(root, {
     width: 70, height: 54,
     centerX: am5.p50, centerY: am5.p50,
+    draggable: true,
+    cursorOverStyle: 'pointer',
+    tooltipHTML: '按住可拖拽到指定位置',
   })
   const icon = buildIcon(root, type, color)
   icon.setAll({ x: 35, y: 16, centerX: am5.p50, centerY: am5.p50 })
@@ -179,12 +310,104 @@ function makeBullet(root, dataItem) {
     fill: am5.color(0xffffff), stroke: am5.color(0x000000), strokeWidth: 3,
   })
   container.children.push(icon, label)
+  container.events.on('dragstop', (ev) => {
+    const oe = ev.originalEvent
+    if (oe && typeof oe.clientX === 'number' && mapEl.value && chart) {
+      const rect = mapEl.value.getBoundingClientRect()
+      const geo = chart.invert({ x: oe.clientX - rect.left, y: oe.clientY - rect.top })
+      if (geo && isFinite(geo.latitude) && isFinite(geo.longitude)) {
+        const ok = store.updatePosition(d.id, geo.latitude, geo.longitude)
+        if (ok) store.pushLog(`📌 已将「${d.title || TYPE_META[d.type]?.label || d.type}」拖拽到新位置并保存`)
+      }
+    }
+  })
   container.events.on('click', (ev) => {
     const it = components.value.find(x => x.id === d.id)
     if (it) store.selectCountry({ id: it.countryId, en: it.countryName, zh: it.zh })
     ev.stopPropagation()
   })
   return am5.Bullet.new(root, { sprite: container })
+}
+
+function createPolygonSeries(geoJSON) {
+  if (polygonSeries) polygonSeries.dispose()
+  polygonSeries = chart.series.push(am5map.MapPolygonSeries.new(root, {
+    geoJSON,
+    exclude: ['AQ'],
+  }))
+  polygonSeries.mapPolygons.template.setAll({
+    tooltipHTML: '<b>{name}</b>',
+    fill: am5.color(0x2f5b9e),
+    stroke: am5.color(0xffffff),
+    strokeWidth: 0.5,
+    fillOpacity: 0.9,
+  })
+  polygonSeries.mapPolygons.template.states.create('hover', { fill: am5.color(0xe74c3c) })
+  polygonSeries.mapPolygons.template.states.create('active', { fill: am5.color(0xffb84d), stroke: am5.color(0xffffff), strokeWidth: 1.5 })
+
+  polygonSeries.mapPolygons.template.events.on('click', (ev) => {
+    if (selectedPolygon && selectedPolygon !== ev.target) selectedPolygon.set('active', false)
+    ev.target.set('active', true)
+    selectedPolygon = ev.target
+    // 世界视图下点击国家 → 选中整国；行政区视图下点击区域 → 仅高亮
+    if (!viewingCountry.value) {
+      const ctx = ev.target.dataItem.dataContext
+      const id = ctx?.properties?.id || ctx?.id
+      const en = ctx?.properties?.name || ctx?.name
+      store.selectCountry({ id, en, zh: '' })
+    }
+  })
+  return polygonSeries
+}
+
+function createCitySeries(data) {
+  if (citySeries) citySeries.dispose()
+  citySeries = chart.series.push(am5map.MapPointSeries.new(root, {}))
+  citySeries.bullets.push((r, series, dataItem) => {
+    const d = dataItem.dataContext
+    const circle = am5.Circle.new(root, {
+      radius: 4.5,
+      fill: am5.color(0xff6b6b),
+      stroke: am5.color(0xffffff),
+      strokeWidth: 1.5,
+      tooltipHTML: `<b>${d.zh || d.en}</b>`,
+      cursorOverStyle: 'pointer',
+    })
+    circle.states.create('hover', { scale: 1.6 })
+    circle.events.on('click', () => {
+      const id = d.countryId
+      if (SUB_MAPS[id]) {
+        enterCountry(id)
+      } else {
+        store.selectCountry({ id, en: d.en, zh: d.zh })
+        store.pushLog(`ℹ️ ${d.zh || d.en} 所属国家（${id}）暂无内部分区数据`)
+      }
+    })
+    return am5.Bullet.new(root, { sprite: circle })
+  })
+  citySeries.data.setAll(data.map(c => ({ ...c, latitude: c.lat, longitude: c.lng })))
+  return citySeries
+}
+
+function enterCountry(id) {
+  const sub = SUB_MAPS[id]
+  if (!sub) return
+  viewingCountry.value = id
+  const rec = getCountryName(id)
+  store.selectCountry({ id, en: rec?.en || '', zh: rec?.zh || '' })
+  createPolygonSeries(sub)
+  createCitySeries(IMPORTANT_CITIES.filter(c => c.countryId === id))
+  pointSeries && pointSeries.toFront() // 确保组件点始终在最上层
+  const cen = rec?.centroid
+  if (cen && chart) chart.zoomToGeoPoint({ latitude: cen[1], longitude: cen[0] }, 3.4, true, 800)
+}
+
+function exitToWorld() {
+  viewingCountry.value = null
+  createPolygonSeries(am5geodata_worldLow)
+  createCitySeries(IMPORTANT_CITIES)
+  pointSeries && pointSeries.toFront()
+  if (chart) chart.zoomToGeoPoint({ latitude: 20, longitude: 10 }, 1, true, 600)
 }
 
 function buildPointData() {
@@ -219,29 +442,8 @@ function buildChart() {
   const bg = chart.get('background')
   if (bg) bg.set('fill', am5.color(0x0b1e3f))
 
-  polygonSeries = chart.series.push(am5map.MapPolygonSeries.new(root, {
-    geoJSON: am5geodata_worldLow,
-    exclude: ['AQ'],
-  }))
-  polygonSeries.mapPolygons.template.setAll({
-    tooltipHTML: '<b>{name}</b>',
-    fill: am5.color(0x2f5b9e),
-    stroke: am5.color(0xffffff),
-    strokeWidth: 0.5,
-    fillOpacity: 0.9,
-  })
-  polygonSeries.mapPolygons.template.states.create('hover', { fill: am5.color(0x5b8dd6) })
-  polygonSeries.mapPolygons.template.states.create('active', { fill: am5.color(0xffb84d), stroke: am5.color(0xffffff), strokeWidth: 1.5 })
-
-  polygonSeries.mapPolygons.template.events.on('click', (ev) => {
-    if (selectedPolygon && selectedPolygon !== ev.target) selectedPolygon.set('active', false)
-    ev.target.set('active', true)
-    selectedPolygon = ev.target
-    const ctx = ev.target.dataItem.dataContext
-    const id = ctx?.properties?.id || ctx?.id
-    const en = ctx?.properties?.name || ctx?.name
-    store.selectCountry({ id, en, zh: '' })
-  })
+  createPolygonSeries(am5geodata_worldLow)
+  createCitySeries(IMPORTANT_CITIES)
 
   pointSeries = chart.series.push(am5map.MapPointSeries.new(root, {}))
   pointSeries.bullets.push((r, series, dataItem) => makeBullet(r, dataItem))
@@ -314,6 +516,22 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 800;
 }
+.viewTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  background: var(--panel-bg-2, #f5f5f5);
+  color: var(--text-secondary, #666);
+}
+.viewTag .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
 .topbarActions { display: flex; gap: 10px; }
 
 .worldLayout {
@@ -329,6 +547,11 @@ onBeforeUnmount(() => {
   padding: 0;
   overflow: hidden;
   min-height: 640px;
+}
+.mapCard.dragActive .map {
+  outline: 3px dashed #ff6b6b;
+  outline-offset: -3px;
+  background: color-mix(in srgb, var(--panel-bg-2, #0d1b3a) 80%, #ff6b6b) !important;
 }
 .map {
   width: 100%;
@@ -353,6 +576,57 @@ onBeforeUnmount(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color-light, #eee);
+  font-size: 13px;
+  background: var(--panel-bg-2, #fafafa);
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-primary, #333);
+}
+.legendItem.muted { color: var(--text-secondary, #999); }
+.legendItem.draggable { cursor: grab; user-select: none; }
+.legendItem.draggable:active { cursor: grabbing; }
+.legendItem.draggable:hover { color: var(--primary-color, #409eff); }
+.legendIcon { display: inline-flex; line-height: 0; }
+.legendIcon :deep(svg) { width: 18px; height: 18px; display: block; }
+.legendEmoji { font-size: 16px; line-height: 1; }
+.legendSep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-color-light, #ddd);
+  margin: 0 2px;
+}
+.legendHint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+}
+.dragGhost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3000;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: none;
+  user-select: none;
 }
 
 .panel {

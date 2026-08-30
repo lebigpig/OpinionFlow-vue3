@@ -18,6 +18,8 @@ export const TYPE_META = {
   pie: { label: '饼图', color: '#e6a23c', icon: '🥧' },
   line: { label: '折线图', color: '#f56c6c', icon: '📈' },
   label: { label: '标签', color: '#909399', icon: '🏷️' },
+  mining: { label: '采矿', color: '#8d6e63', icon: '⛏️' },
+  oil: { label: '石油开采', color: '#546e7a', icon: '🛢️' },
 }
 
 export const useWorldMapStore = defineStore('worldMap', () => {
@@ -86,6 +88,16 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     persist()
   }
 
+  // 拖拽后更新组件位置并保存
+  function updatePosition(id, lat, lng) {
+    const it = components.value.find(c => c.id === id)
+    if (!it) return false
+    it.lat = lat
+    it.lng = lng
+    persist()
+    return true
+  }
+
   function clearAll() {
     components.value = []
     persist()
@@ -109,6 +121,21 @@ export const useWorldMapStore = defineStore('worldMap', () => {
       color: color || '#409eff',
     })
     return { ok: true, msg: `已在 ${s.zh || s.en} (${s.id}) 添加 ${TYPE_META[type]?.label || type} 组件` }
+  }
+
+  // 从图例拖拽到地图指定坐标直接添加组件（无需先选中国家）
+  function addAtPosition({ lat, lng, type, title, value, color }) {
+    return addComponent({
+      countryId: '',
+      countryName: '',
+      zh: '',
+      lat,
+      lng,
+      type: type || 'marker',
+      title: title || '',
+      value,
+      color: color || '#409eff',
+    })
   }
 
   // ── 服务器保存 / 加载 ───────────────────────────────────────────
@@ -140,6 +167,8 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     if (!country) return null
 
     const typeRules = [
+      { t: 'mining', kws: ['采矿', '矿山', '矿区', 'mining'] },
+      { t: 'oil', kws: ['石油', '油田', '原油', '油井', 'oil'] },
       { t: 'bar', kws: ['柱状', '条形', 'bar'] },
       { t: 'pie', kws: ['饼图', 'pie', '占比', '份额', '结构'] },
       { t: 'line', kws: ['折线', 'line', '趋势'] },
@@ -176,7 +205,7 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     if (!data.countryId) return null
     const country = getCountryName(data.countryId)
     if (!country) return null
-    const type = ['bar', 'pie', 'line', 'marker', 'label'].includes(data.type) ? data.type : 'marker'
+    const type = ['bar', 'pie', 'line', 'marker', 'label', 'mining', 'oil'].includes(data.type) ? data.type : 'marker'
     return { country, type, title: data.title || '', value: data.value ?? null }
   }
 
@@ -237,8 +266,10 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     selectCountry,
     addComponent,
     removeComponent,
+    updatePosition,
     clearAll,
     addToSelected,
+    addAtPosition,
     saveToServer,
     loadFromServer,
     pushLog,
