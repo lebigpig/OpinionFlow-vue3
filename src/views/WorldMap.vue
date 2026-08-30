@@ -90,20 +90,79 @@
               <div class="compTitle">{{ c.title || TYPE_META[c.type]?.label || c.type }}<span v-if="c.value != null">: {{ c.value }}</span></div>
               <div class="muted small">{{ c.zh || c.countryName }}（{{ c.countryId }}）</div>
             </div>
-            <button class="btn-delete-item" type="button" @click="removeComp(c.id)" title="删除">✕</button>
+            <div class="compActions">
+              <button class="btn sm" type="button" @click="openMarkerForm({ lat: c.lat, lng: c.lng, type: c.type, comp: c })">编辑</button>
+              <button class="btn-delete-item" type="button" @click="removeComp(c.id)" title="删除">✕</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- 拖放图例后填写标记信息 -->
+  <el-dialog v-model="markerFormVisible" title="标记信息" width="520px" :close-on-click-modal="false">
+    <el-form label-width="96px">
+      <div class="markerCoords">
+        📍 位置：纬度 <b>{{ markerLat }}</b>，经度 <b>{{ markerLng }}</b>
+      </div>
+      <el-form-item label="名称" required>
+        <el-input v-model="markerForm.name" placeholder="如：皮尔巴拉铁矿石" />
+      </el-form-item>
+      <el-form-item label="分类">
+        <el-select v-model="markerForm.category" style="width:100%">
+          <el-option v-for="g in legendGroups" :key="g.name" :label="g.name" :value="g.name" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="图标类型">
+        <el-select v-model="markerForm.iconType" style="width:100%">
+          <el-option-group v-for="g in legendGroups" :key="g.name" :label="g.name">
+            <el-option v-for="k in g.types" :key="k" :label="TYPE_META[k].label" :value="k" />
+          </el-option-group>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="国家">
+        <el-input v-model="markerForm.country" placeholder="如：澳大利亚" />
+      </el-form-item>
+      <el-form-item label="地区">
+        <el-input v-model="markerForm.region" placeholder="如：西澳大利亚州皮尔巴拉" />
+      </el-form-item>
+      <el-form-item label="描述">
+        <el-input v-model="markerForm.description" type="textarea" :rows="2" placeholder="备注说明" />
+      </el-form-item>
+      <el-form-item label="年产量">
+        <el-input v-model="markerForm.annualOutput" placeholder="如：5000万吨" />
+      </el-form-item>
+      <el-form-item label="年利润">
+        <el-input v-model="markerForm.annualProfit" placeholder="如：12亿" />
+      </el-form-item>
+      <el-form-item label="经营方">
+        <el-input v-model="markerForm.operator" placeholder="运营主体" />
+      </el-form-item>
+      <el-form-item label="状态">
+        <el-radio-group v-model="markerForm.status">
+          <el-radio :value="1">启用</el-radio>
+          <el-radio :value="0">停用</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="创建人">
+        <el-input v-model="markerForm.createdBy" placeholder="创建人（可选）" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="markerFormVisible = false">取消</el-button>
+      <el-button type="primary" :loading="markerSaving" @click="submitMarkerForm">保存</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as am5 from '@amcharts/amcharts5'
 import * as am5map from '@amcharts/amcharts5/map'
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated'
 import am5geodata_worldLow from '@amcharts/amcharts5-geodata/worldLow'
+import { saveMapMarker, updateMapMarker, getMapMarker } from '@/lib/api.js'
 import { useWorldMapStore, TYPE_META } from '@/stores/WorldMapStore.js'
 import { SUB_MAPS, IMPORTANT_CITIES } from '@/lib/worldMapData.js'
 import { ZINC_SVG, ALUMINUM_SVG, SOYBEAN_SVG } from '@/lib/worldMapIcons.js'
@@ -121,9 +180,9 @@ const dragActive = ref(false) // 拖拽悬停高亮
 // 图例与下拉的分组结构
 const legendGroups = [
   { name: '农产品', types: ['corn', 'wheat', 'soybean', 'coffee', 'cocoa', 'cotton', 'sugar', 'orangeJuice', 'liveCattle', 'leanHogs'] },
-  { name: '工业金属', types: ['copper', 'cobalt', 'aluminum', 'zinc', 'nickel', 'lead', 'tin', 'ironOre'] },
+  { name: '工业金属', types: ['copper', 'cobalt', 'aluminum', 'zinc', 'nickel', 'lead', 'tin', 'ironOre', 'lithium', 'manganese', 'graphite', 'rareEarth'] },
   { name: '贵金属', types: ['gold', 'silver', 'platinum', 'palladium'] },
-  { name: '能源', types: ['coal', 'naturalGas', 'crudeOil', 'gasoline', 'propane', 'ethanol'] },
+  { name: '能源', types: ['coal', 'naturalGas', 'crudeOil', 'gasoline', 'propane', 'ethanol', 'uranium'] },
   { name: '港口与航线', types: ['port', 'shipping'] },
 ]
 
@@ -194,12 +253,9 @@ function onLegendPointerUp(e) {
     store.pushLog(`⚠️ 放置位置无效（像素 ${x.toFixed(0)},${y.toFixed(0)}），请拖到地图内部`)
     return
   }
-  store.addAtPosition({ lat: geo.latitude, lng: geo.longitude, type: k, color: TYPE_META[k].color })
-  // 显式刷新点图层，确保新组件立即渲染
-  refreshPoints()
-  // 将地图中心移动到落点，便于确认组件已生成
+  // 将地图中心移动到落点，并弹出表单填写标记信息（保存到 map_markers）
   chart.zoomToGeoPoint({ latitude: geo.latitude, longitude: geo.longitude }, Math.max(chart.get('zoomLevel') || 1, 1), true, 300)
-  store.pushLog(`📌 已添加「${TYPE_META[k].label}」@(${geo.latitude.toFixed(2)}, ${geo.longitude.toFixed(2)})，地图组件共 ${components.value.length} 个`)
+  openMarkerForm({ lat: geo.latitude, lng: geo.longitude, type: k })
 }
 
 function refreshPoints() {
@@ -291,12 +347,13 @@ function makeBullet(root, dataItem) {
   const d = dataItem.dataContext
   const type = d.type || 'marker'
   const color = am5.color(d.color || typeDefaultColor(type))
+  const locked = !!d.markerId // 已写入数据库的标记：位置锁定，不可拖拽
   const container = am5.Container.new(root, {
     width: 70, height: 54,
     centerX: am5.p50, centerY: am5.p50,
-    draggable: true,
+    draggable: !locked,
     cursorOverStyle: 'pointer',
-    tooltipHTML: '按住可拖拽到指定位置',
+    tooltipHTML: locked ? '该标记已入库，位置已锁定' : '按住可拖拽到指定位置',
   })
   const icon = buildIcon(root, type, color)
   icon.setAll({ x: 35, y: 16, centerX: am5.p50, centerY: am5.p50 })
@@ -309,6 +366,7 @@ function makeBullet(root, dataItem) {
   })
   container.children.push(icon, label)
   container.events.on('dragstop', (ev) => {
+    if (locked) return // 已入库组件不可移动
     const oe = ev.originalEvent
     if (oe && typeof oe.clientX === 'number' && mapEl.value && chart) {
       const rect = mapEl.value.getBoundingClientRect()
@@ -321,7 +379,7 @@ function makeBullet(root, dataItem) {
   })
   container.events.on('click', (ev) => {
     const it = components.value.find(x => x.id === d.id)
-    if (it) store.selectCountry({ id: it.countryId, en: it.countryName, zh: it.zh })
+    if (it) openMarkerForm({ lat: it.lat, lng: it.lng, type: it.type, comp: it })
     ev.stopPropagation()
   })
   return am5.Bullet.new(root, { sprite: container })
@@ -417,6 +475,7 @@ function buildPointData() {
     title: c.title,
     value: c.value,
     color: c.color,
+    markerId: c.markerId,
   }))
 }
 
@@ -483,6 +542,169 @@ function doClear() {
 }
 
 function removeComp(id) { store.removeComponent(id) }
+
+// ── 拖放后标记表单 ───────────────────────────────────────────────
+const markerFormVisible = ref(false)
+const markerSaving = ref(false)
+const markerLat = ref(null)
+const markerLng = ref(null)
+const markerType = ref('gold')
+const markerEditId = ref(null) // DB id，null=新增，非空=编辑
+const markerCompId = ref(null) // 地图组件 id，编辑时用于更新
+const markerForm = reactive({
+  name: '',
+  category: '',
+  iconType: 'gold',
+  country: '',
+  region: '',
+  description: '',
+  annualOutput: '',
+  annualProfit: '',
+  operator: '',
+  status: 1,
+  createdBy: '',
+})
+
+async function openMarkerForm({ lat, lng, type, comp }) {
+  markerLat.value = lat
+  markerLng.value = lng
+  markerType.value = type || 'gold'
+  // 每次打开都清空所有字段，避免上次残留干扰本次
+  resetMarkerForm()
+
+  if (comp) {
+    // 编辑模式：用组件信息预填（避免清空后被覆盖，先设基础再预填）
+    markerEditId.value = comp.markerId || null
+    markerCompId.value = comp.id
+    markerForm.iconType = comp.type || type || 'gold'
+    markerForm.name = comp.title || ''
+    markerForm.category = legendGroups.find(g => g.types.includes(markerForm.iconType))?.name || ''
+    // 若有 DB id，加载完整详情
+    if (comp.markerId) {
+      try {
+        const rec = await getMapMarker(comp.markerId)
+        if (rec) {
+          Object.assign(markerForm, {
+            name: rec.name || markerForm.name,
+            category: rec.category || markerForm.category,
+            iconType: rec.iconType || markerForm.iconType,
+            country: rec.country || '',
+            region: rec.region || '',
+            description: rec.description || '',
+            annualOutput: rec.annualOutput || '',
+            annualProfit: rec.annualProfit || '',
+            operator: rec.operator || '',
+            status: rec.status ?? 1,
+            createdBy: rec.createdBy || '',
+          })
+        }
+      } catch (e) { /* 忽略，用组件已有信息 */ }
+    }
+  } else {
+    // 新增模式（拖放图例）：清空后仅按拖放类型设置类型与分类
+    markerEditId.value = null
+    markerCompId.value = null
+    markerForm.iconType = type || 'gold'
+    markerForm.category = legendGroups.find(g => g.types.includes(type))?.name || ''
+  }
+  markerFormVisible.value = true
+}
+
+function resetMarkerForm() {
+  Object.assign(markerForm, {
+    name: '', category: '', iconType: 'gold', country: '', region: '',
+    description: '', annualOutput: '', annualProfit: '', operator: '',
+    status: 1, createdBy: '',
+  })
+}
+
+function applyCompFields(comp) {
+  comp.title = markerForm.name
+  comp.type = markerForm.iconType
+  comp.country = markerForm.country
+  comp.region = markerForm.region
+  comp.description = markerForm.description
+  comp.annualOutput = markerForm.annualOutput
+  comp.annualProfit = markerForm.annualProfit
+  comp.operator = markerForm.operator
+  comp.status = markerForm.status
+}
+
+function finishAndClose() {
+  markerFormVisible.value = false
+  resetMarkerForm()
+}
+
+// 新增：保存数据库 + 在地图显示（编辑时若记录不存在也走这里）
+async function doCreate(payload) {
+  const resp = await saveMapMarker(payload)
+  store.pushLog(`💾 已保存标记「${markerForm.name}」到数据库 (id=${resp?.id})`)
+  let item
+  if (markerCompId.value) {
+    // 编辑 404 转新建：更新已有组件
+    item = components.value.find(x => x.id === markerCompId.value)
+  }
+  if (!item) {
+    item = store.addAtPosition({
+      lat: markerLat.value,
+      lng: markerLng.value,
+      type: markerForm.iconType,
+      title: markerForm.name,
+      color: TYPE_META[markerForm.iconType]?.color,
+    })
+  }
+  if (item) {
+    item.markerId = resp?.id
+    applyCompFields(item)
+  }
+  refreshPoints()
+}
+
+async function submitMarkerForm() {
+  if (!markerForm.name.trim()) { store.pushLog('⚠️ 请填写标记名称'); return }
+  if (markerLat.value == null || markerLng.value == null) { store.pushLog('⚠️ 缺少经纬度'); return }
+  markerSaving.value = true
+  try {
+    const payload = {
+      latitude: markerLat.value,
+      longitude: markerLng.value,
+      name: markerForm.name,
+      category: markerForm.category,
+      iconType: markerForm.iconType,
+      country: markerForm.country,
+      region: markerForm.region,
+      description: markerForm.description,
+      annualOutput: markerForm.annualOutput,
+      annualProfit: markerForm.annualProfit,
+      operator: markerForm.operator,
+      status: markerForm.status,
+      createdBy: markerForm.createdBy,
+    }
+    if (markerEditId.value) {
+      try {
+        await updateMapMarker(markerEditId.value, payload)
+        store.pushLog(`💾 已更新标记「${markerForm.name}」(id=${markerEditId.value})`)
+        const comp = components.value.find(x => x.id === markerCompId.value)
+        if (comp) { applyCompFields(comp); refreshPoints() }
+      } catch (e) {
+        // 记录在数据库中已不存在（404）→ 直接新建
+        if (e && e.status === 404) {
+          store.pushLog(`ℹ️ 原标记已不存在（404），转为新建`)
+          await doCreate(payload)
+        } else {
+          throw e
+        }
+      }
+    } else {
+      await doCreate(payload)
+    }
+    finishAndClose()
+  } catch (e) {
+    store.pushLog(`❌ 保存标记失败：${e?.message || e}`)
+  } finally {
+    markerSaving.value = false
+  }
+}
 
 onMounted(() => {
   store.loadLocal()
@@ -637,6 +859,15 @@ onBeforeUnmount(() => {
   display: none;
   user-select: none;
 }
+.markerCoords {
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  background: var(--panel-bg-2, #f5f5f5);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+}
+.markerCoords b { color: var(--primary-color, #409eff); }
 
 .panel {
   display: flex;
@@ -729,6 +960,7 @@ onBeforeUnmount(() => {
 }
 .compIcon { font-size: 18px; }
 .compInfo { flex: 1; min-width: 0; }
+.compActions { display: flex; align-items: center; gap: 6px; }
 .compTitle { font-size: 13px; font-weight: 600; }
 .compTitle span { color: var(--primary-color, #409eff); }
 .small { font-size: 11px; }

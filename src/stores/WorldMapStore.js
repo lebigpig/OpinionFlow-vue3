@@ -2,7 +2,7 @@
 // 世界格局地图状态：选中国家、添加/删除组件、Agent 智能解析、持久化
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { saveEchartJson, listEchartPage, worldMapAgent } from '@/lib/api.js'
+import { saveEchartJson, listEchartPage, worldMapAgent, saveMapMarker } from '@/lib/api.js'
 import { getCentroid, getCountryName, matchCountry } from '@/lib/worldCountries.js'
 import { IMPORTANT_CITIES } from '@/lib/worldMapData.js'
 
@@ -36,6 +36,10 @@ const COMMODITY_TYPES = [
   ['lead', '铅', '⬛', '#616161'],
   ['tin', '锡', '🥫', '#cfd8dc'],
   ['ironOre', '铁矿石', '🪨', '#795548'],
+  ['lithium', '锂', '🔋', '#7cb342'],
+  ['manganese', '锰', '🧱', '#9e9e9e'],
+  ['graphite', '石墨', '✏️', '#607d8b'],
+  ['rareEarth', '稀土', '🧲', '#ab47bc'],
   // 贵金属
   ['gold', '金', '🥇', '#ffd700'],
   ['silver', '银', '🥈', '#b0bec5'],
@@ -48,6 +52,7 @@ const COMMODITY_TYPES = [
   ['gasoline', '汽油', '⛽', '#fdd835'],
   ['propane', '丙烷', '🧯', '#b0bec5'],
   ['ethanol', '乙醇', '🧪', '#9ccc65'],
+  ['uranium', '铀', '☢️', '#4caf50'],
   // 港口 / 航线
   ['port', '港口', '⚓', '#039be5'],
   ['shipping', '轮船航线', '🚢', '#29b6f6'],
@@ -96,6 +101,19 @@ const TYPE_ALIASES = {
   natural: 'naturalGas',
   oil: 'crudeOil',
 }
+
+// 类型 → 分类（用于写入 map_markers.category）
+const TYPE_CATEGORY = {
+  corn: '农产品', wheat: '农产品', soybean: '农产品', coffee: '农产品', cocoa: '农产品',
+  cotton: '农产品', sugar: '农产品', orangeJuice: '农产品', liveCattle: '农产品', leanHogs: '农产品',
+  copper: '工业金属', cobalt: '工业金属', aluminum: '工业金属', zinc: '工业金属', nickel: '工业金属',
+  lead: '工业金属', tin: '工业金属', ironOre: '工业金属', lithium: '工业金属', manganese: '工业金属',
+  graphite: '工业金属', rareEarth: '工业金属',
+  gold: '贵金属', silver: '贵金属', platinum: '贵金属', palladium: '贵金属',
+  coal: '能源', naturalGas: '能源', crudeOil: '能源', gasoline: '能源', propane: '能源', ethanol: '能源', uranium: '能源',
+  port: '港口与航线', shipping: '港口与航线',
+}
+function categoryOfType(t) { return TYPE_CATEGORY[t] || '' }
 
 // 把用户/AI 给的类型名（key、别名或中文名）归一化为 TYPE_META 的 key
 export function normalizeType(input) {
@@ -287,6 +305,11 @@ export const useWorldMapStore = defineStore('worldMap', () => {
       { t: 'silver', kws: ['白银', '银价', 'silver'] },
       { t: 'copper', kws: ['铜价', '精铜', 'copper'] },
       { t: 'cobalt', kws: ['钴', 'cobalt'] },
+      { t: 'lithium', kws: ['锂', '锂矿', 'lithium'] },
+      { t: 'manganese', kws: ['锰', '锰矿', 'manganese'] },
+      { t: 'uranium', kws: ['铀', '铀矿', 'uranium'] },
+      { t: 'graphite', kws: ['石墨', 'graphite'] },
+      { t: 'rareEarth', kws: ['稀土', 'rare earth', 'rareEarth'] },
       { t: 'port', kws: ['港口', 'port'] },
       { t: 'shipping', kws: ['航线', '轮船', 'shipping', 'shipping route'] },
     ]
@@ -309,8 +332,9 @@ export const useWorldMapStore = defineStore('worldMap', () => {
     if (!type && title) type = normalizeType(title)
     if (!type) type = 'ironOre'
 
-    if (latlng) return { latlng, type, value, title }
-    return { country, type, value, title }
+    const description = `${TYPE_META[type]?.label || type} 标记`
+    if (latlng) return { latlng, type, value, title, description }
+    return { country, type, value, title, description }
   }
 
   // ── 后端 AI 解析（智能 Agent，支持多条 → 返回多个 plan） ───────────
@@ -348,14 +372,14 @@ export const useWorldMapStore = defineStore('worldMap', () => {
       country = getCountryName(item.countryId)
     }
     if (!latlng && !country) return null
-    return { country, latlng, type, title: item.title || '', value: item.value ?? null }
+    return { country, latlng, type, title: item.title || '', value: item.value ?? null, description: item.description || '' }
   }
 
   async function agentParsePlansWithAI(text) {
     const systemPrompt =
       '你是地图标注 Agent。将中文指令解析为单个或多个 JSON：\n' +
-      '{"countryId":"ISO2或null","type":"组件key","title":"简短中文名","value":数字或null,"latitude":纬度或null,"longitude":经度或null}\n\n' +
-      '组件key：corn,wheat,soybean,coffee,cocoa,cotton,sugar,orange,beef,pork,copper,cobalt,aluminum,zinc,nickel,lead,tin,iron,gold,silver,platinum,palladium,coal,gas,natural,oil,gasoline,propane,ethanol,port,shipping\n\n' +
+      '{"countryId":"ISO2或null","type":"组件key","title":"简短中文名","value":数字或null,"description":"约40字详细描述，结合该地位置、类型、背景与用途","latitude":纬度或null,"longitude":经度或null}\n\n' +
+      '组件key：与详情描述最贴切的英文词(corn,wheat,soybean,coffee,cocoa,cotton,sugar,orange,beef,pork,copper,cobalt,aluminum,zinc,nickel,lead,tin,iron,lithium,manganese,uranium,graphite,rareEarth,gold,silver,platinum,palladium,coal,gas,natural,oil,gasoline,propane,ethanol,port,shipping)\n\n' +
       '经纬度规则：用户给具体数值则用；否则 latitude/longitude 为 null。'
     const resp = await worldMapAgent(text, systemPrompt)
     const items = extractJsonItems(resp?.result || '')
@@ -415,25 +439,54 @@ export const useWorldMapStore = defineStore('worldMap', () => {
       for (const plan of plans) {
         const type = plan.type || 'ironOre'
         const meta = TYPE_META[type] || { label: type }
+        const title = plan.title || ''
+        const value = plan.value ?? null
+        let item
         if (plan.latlng) {
           // 用户给定或 AI 推断出的精确经纬度 → 直接放置
-          addAtPosition({ lat: plan.latlng.lat, lng: plan.latlng.lng, type, title: plan.title || '', value: plan.value, color: meta.color })
+          item = addAtPosition({ lat: plan.latlng.lat, lng: plan.latlng.lng, type, title, value, color: meta.color })
         } else {
           // 国家中心点
           const c = plan.country
-          addComponent({
+          item = addComponent({
             countryId: c.id,
             countryName: c.en,
             zh: c.zh,
             lat: c.centroid[1],
             lng: c.centroid[0],
             type,
-            title: plan.title || '',
-            value: plan.value,
+            title,
+            value,
             color: meta.color,
           })
         }
         okCount++
+
+        // 自动写入数据库（map_markers），并把返回的 DB id 绑定到组件
+        try {
+          const resp = await saveMapMarker({
+            latitude: item?.lat ?? plan.latlng?.lat,
+            longitude: item?.lng ?? plan.latlng?.lng,
+            name: title || meta.label,
+            category: categoryOfType(type),
+            iconType: type,
+            country: plan.country?.zh || plan.country?.en || '',
+            region: '',
+            description: plan.description || '',
+            annualOutput: '',
+            annualProfit: '',
+            operator: '',
+            status: 1,
+            createdBy: 'agent',
+          })
+          if (item) {
+            item.markerId = resp?.id
+            item.description = plan.description || ''
+          }
+        } catch (e) {
+          pushLog(`⚠️ 自动写库失败（${meta.label}）：${e?.message || e}`)
+        }
+
         const where = plan.latlng
           ? `经纬度 (${plan.latlng.lat}, ${plan.latlng.lng})`
           : `${plan.country?.zh || plan.country?.en || ''} (${plan.country?.id || '?'})`

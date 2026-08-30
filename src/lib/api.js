@@ -27,7 +27,9 @@ async function request(path, init) {
 
   if (!resp.ok) {
     const msg = (json && (json.message || json.error)) || text || `HTTP ${resp.status}`
-    throw new Error(msg)
+    const err = new Error(msg)
+    err.status = resp.status
+    throw err
   }
 
   return json
@@ -110,6 +112,33 @@ export function worldMapAgent(content, systemPrompt) {
     method: 'POST',
     body: JSON.stringify({ content, systemPrompt }),
   })
+}
+
+// ── 地图标记 CRUD（map_markers） ─────────────────────────────────
+export function saveMapMarker(data) {
+  return request('/api/map-markers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateMapMarker(id, data) {
+  return request(`/api/map-markers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function listMapMarkers() {
+  return request('/api/map-markers')
+}
+
+export function getMapMarker(id) {
+  return request(`/api/map-markers/${id}`)
+}
+
+export function deleteMapMarker(id) {
+  return request(`/api/map-markers/${id}`, { method: 'DELETE' })
 }
 
 export async function aiParseStream(content, { onDelta, systemPrompt } = {}) {
