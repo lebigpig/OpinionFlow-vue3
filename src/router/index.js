@@ -57,6 +57,13 @@ const routes = [
                 component: () => import('@/views/WorldMap.vue')
             },
 
+            // 企业模块
+            {
+                path: 'company/china',
+                name: 'company_china',
+                component: () => import('@/views/CompanyChina.vue')
+            },
+
             // 脚本运行模块
             {
                 path: 'scripts',

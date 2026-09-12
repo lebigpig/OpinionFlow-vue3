@@ -138,6 +138,42 @@ export function updateCountryMacro(id, data) {
   })
 }
 
+// ── 中国企业财报（company_china 库，微服务 opinionflow-company） ──
+export function fetchCompanyList({ keyword, page = 0, size = 20 } = {}) {
+  return request(`/api/company/list?page=${page}&size=${size}${qs({ keyword })}`)
+}
+
+export function fetchCompanyDetail(id) {
+  return request(`/api/company/${id}/detail`)
+}
+
+/** 某份财报的各表明细（后端三表 UNION 连接查询） */
+export function fetchCompanyReportDetail(reportId) {
+  return request(`/api/company/reports/${reportId}/detail`)
+}
+
+export function fetchCompanyReports(id, { fiscalYear } = {}) {
+  const y = fiscalYear === null || fiscalYear === undefined || fiscalYear === '' ? '' : fiscalYear
+  const q = y === '' ? '' : `?fiscalYear=${encodeURIComponent(y)}`
+  return request(`/api/company/${id}/reports${q}`)
+}
+
+export function fetchCompanyIncome(reportId) {
+  return request(`/api/company/reports/${reportId}/income`)
+}
+
+export function fetchCompanyBalance(reportId) {
+  return request(`/api/company/reports/${reportId}/balance`)
+}
+
+export function fetchCompanyCashFlow(reportId) {
+  return request(`/api/company/reports/${reportId}/cashflow`)
+}
+
+export function fetchCompanyIndicators(reportId) {
+  return request(`/api/company/reports/${reportId}/indicators`)
+}
+
 // ── 地图标记 CRUD（map_markers） ─────────────────────────────────
 export function saveMapMarker(data) {
   return request('/api/map-markers', {

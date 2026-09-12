@@ -38,6 +38,7 @@ const routeNameToMenuKey = {
   ai_custom: 'ai_custom',
   comments: 'comments',
   world: 'world',
+  company_china: 'company_china',
   search: 'le_search',
   scripts: 'scripts',
   script_all: 'script_all',
@@ -79,6 +80,13 @@ const menuGroups = [
     ],
   },
   {
+    key: 'company',
+    name: '企业',
+    children: [
+      { key: 'company_china', name: '中国企业', to: '/company/china' },
+    ],
+  },
+  {
 
     key:'search',
     name:'搜索引擎',
@@ -104,6 +112,7 @@ const groupOpen = reactive({
   realtime: true,
   analysis: true,
   macro: true,
+  company: true,
   search: true,
   scripts: true,
 })
