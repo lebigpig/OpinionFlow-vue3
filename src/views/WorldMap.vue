@@ -12,12 +12,7 @@
           世界视图
         </template>
       </div>
-      <div class="topbarActions">
-        <button v-if="viewingCountry" class="btn" type="button" @click="exitToWorld">← 返回世界</button>
-        <button class="btn" type="button" @click="doSave">💾 保存到服务器</button>
-        <button class="btn" type="button" @click="doLoad">📥 从服务器加载</button>
-        <button class="btn danger" type="button" @click="doClear">🗑 清空全部</button>
-      </div>
+
     </div>
 
     <div class="worldLayout">
@@ -154,19 +149,224 @@
       <el-button type="primary" :loading="markerSaving" @click="submitMarkerForm">保存</el-button>
     </template>
   </el-dialog>
+
+  <!-- 点击国家 → 宏观指标编辑表单（选择年份 → where 查询 → 修改 → 提交 update） -->
+  <el-dialog
+      v-model="macroVisible"
+      :title="`${macroCountryInfo?.en || '国家'} · 宏观指标`"
+      width="1100px"
+      top="3vh"
+      :close-on-click-modal="false"
+      @closed="closeMacroForm"
+  >
+    <div v-loading="macroLoading" class="macroBody">
+      <el-empty v-if="macroError && !macroLoading" :description="macroError" />
+      <template v-else-if="macroData">
+        <div class="macroToolbar">
+          <span class="macroQuestion">请选择数据年份：</span>
+          <el-select
+              v-model="macroYear"
+              placeholder="选择年份"
+              style="width: 150px"
+              :disabled="macroLoading || !macroYears.length"
+              @change="onMacroYearChange"
+          >
+            <el-option v-for="y in macroYears" :key="y" :label="`${y} 年`" :value="y" />
+          </el-select>
+          <span v-if="macroForm.id != null" class="macroRecordId">
+            记录 #{{ macroForm.id }} · {{ macroForm.dataSource || '未知来源' }}
+          </span>
+          <span class="muted macroHint">修改字段后点击右下角「提交修改」，将按记录 id 写入数据库</span>
+        </div>
+
+        <el-form :model="macroForm" label-width="120px" class="macroForm" @click="onMacroFormClick">
+          <div class="macroGroup">
+            <div class="macroGroupTitle">📋 基本信息</div>
+            <div class="macroGrid">
+              <el-form-item label="国家/地区">
+                <el-input v-model="macroForm.country" placeholder="与 map_markers 的 country 对应" />
+              </el-form-item>
+              <el-form-item label="ISO 代码">
+                <el-input v-model="macroForm.countryCode" placeholder="如 CHN" />
+              </el-form-item>
+              <el-form-item label="数据年份">
+                <el-input v-model.number="macroForm.year" placeholder="如 2024" />
+              </el-form-item>
+              <el-form-item label="所属区域">
+                <el-input v-model="macroForm.region" placeholder="如 东亚与太平洋" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">🧮 经济总量</div>
+            <div class="macroGrid">
+              <el-form-item label="GDP（现价美元）">
+                <el-input v-model="macroForm.gdpUsd" data-metric="gdpUsd" placeholder="如 18729668435848.00" />
+              </el-form-item>
+              <el-form-item label="GDP 实际增长率">
+                <el-input v-model="macroForm.gdpGrowthPct" data-metric="gdpGrowthPct" placeholder="如 4.9583" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">🏷 物价</div>
+            <div class="macroGrid">
+              <el-form-item label="CPI 同比涨幅">
+                <el-input v-model="macroForm.cpiPct" data-metric="cpiPct" placeholder="如 0.2181" />
+              </el-form-item>
+              <el-form-item label="PPI 同比涨幅">
+                <el-input v-model="macroForm.ppiPct" data-metric="ppiPct" placeholder="如 2.3568" />
+              </el-form-item>
+              <el-form-item label="通胀率">
+                <el-input v-model="macroForm.inflationPct" data-metric="inflationPct" placeholder="如 0.2181" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">💼 就业与汇率</div>
+            <div class="macroGrid">
+              <el-form-item label="就业率">
+                <el-input v-model="macroForm.employmentRatePct" data-metric="employmentRatePct" placeholder="如 61.9310" />
+              </el-form-item>
+              <el-form-item label="失业率">
+                <el-input v-model="macroForm.unemploymentRatePct" data-metric="unemploymentRatePct" placeholder="如 4.5900" />
+              </el-form-item>
+              <el-form-item label="美元兑本币汇率">
+                <el-input v-model="macroForm.exchangeRateUsd" data-metric="exchangeRateUsd" placeholder="1 USD = ? 本币" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">👥 人口</div>
+            <div class="macroGrid">
+              <el-form-item label="总人口">
+                <el-input v-model="macroForm.populationTotal" data-metric="populationTotal" placeholder="如 1408975000" />
+              </el-form-item>
+              <el-form-item label="人口增长率">
+                <el-input v-model="macroForm.populationGrowthPct" data-metric="populationGrowthPct" placeholder="如 -0.1231" />
+              </el-form-item>
+              <el-form-item label="年龄中位数">
+                <el-input v-model="macroForm.medianAge" data-metric="medianAge" placeholder="如 39.10" />
+              </el-form-item>
+              <el-form-item label="城镇化率">
+                <el-input v-model="macroForm.urbanPopulationPct" data-metric="urbanPopulationPct" placeholder="如 65.8947" />
+              </el-form-item>
+              <el-form-item label="0–14 岁占比">
+                <el-input v-model="macroForm.age014Pct" data-metric="age014Pct" placeholder="如 16.0078" />
+              </el-form-item>
+              <el-form-item label="15–64 岁占比">
+                <el-input v-model="macroForm.age1564Pct" data-metric="age1564Pct" placeholder="如 69.3269" />
+              </el-form-item>
+              <el-form-item label="65 岁+ 占比">
+                <el-input v-model="macroForm.age65PlusPct" data-metric="age65PlusPct" placeholder="如 14.6653" />
+              </el-form-item>
+            </div>
+          </div>
+
+        <div class="macroGroup">
+            <div class="macroGroupTitle">🚢 贸易</div>
+            <div class="macroGrid">
+              <el-form-item label="货物出口额">
+                <el-input v-model="macroForm.exportsGoodsUsd" data-metric="exportsGoodsUsd" placeholder="USD" />
+              </el-form-item>
+              <el-form-item label="货物进口额">
+                <el-input v-model="macroForm.importsGoodsUsd" data-metric="importsGoodsUsd" placeholder="USD" />
+              </el-form-item>
+              <el-form-item label="贸易依存度 / GDP">
+                <el-input v-model="macroForm.tradeOpennessPct" data-metric="tradeOpennessPct" placeholder="如 32.8837" />
+              </el-form-item>
+              <el-form-item label="进口 / 出口比">
+                <el-input v-model="macroForm.importExportRatio" data-metric="importExportRatio" placeholder="如 1.0342（>1 逆差，<1 顺差）" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">🏦 政府负债</div>
+            <div class="macroGrid">
+              <el-form-item label="政府债务总额">
+                <el-input v-model="macroForm.govtDebtTotal" data-metric="govtDebtTotal" placeholder="本币" />
+              </el-form-item>
+              <el-form-item label="政府债务 / GDP">
+                <el-input v-model="macroForm.govtDebtGdpPct" data-metric="govtDebtGdpPct" placeholder="如 115.7684" />
+              </el-form-item>
+              <el-form-item label="债务口径说明">
+                <el-input v-model="macroForm.govtDebtScope" placeholder="如 中央政府债务" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">🏛 政治制度</div>
+            <div class="macroGrid">
+              <el-form-item label="政治制度描述">
+                <el-input v-model="macroForm.politicalSystem" placeholder="描述" />
+              </el-form-item>
+              <el-form-item label="政体类型">
+                <el-input v-model="macroForm.regimeType" placeholder="如 议会制共和制" />
+              </el-form-item>
+            </div>
+          </div>
+
+          <div class="macroGroup">
+            <div class="macroGroupTitle">📎 数据来源与备注</div>
+            <div class="macroGrid">
+              <el-form-item label="数据来源">
+                <el-input v-model="macroForm.dataSource" placeholder="如 World Bank WDI" />
+              </el-form-item>
+              <el-form-item label="来源链接">
+                <el-input v-model="macroForm.sourceUrl" placeholder="https://..." />
+              </el-form-item>
+              <el-form-item label="备注" class="macroSpan2">
+                <el-input v-model="macroForm.notes" type="textarea" :rows="2" placeholder="口径差异、估算值等说明" />
+              </el-form-item>
+            </div>
+          </div>
+        </el-form>
+
+        <!-- 点击指标 → 该国该指标全部年份柱形图 + 同比增减折线图 -->
+        <div v-if="macroMetric" v-loading="macroHistoryLoading" class="macroChartCard">
+          <div class="macroChartHead">
+            <span class="macroChartTitle">
+              📈 {{ macroCurrentMetric?.label || '' }} · 全部年份趋势
+              <span class="muted">（{{ macroCountryInfo?.query || '' }}）</span>
+            </span>
+            <el-checkbox v-model="macroShowBarLabel">柱上显示数值</el-checkbox>
+            <el-checkbox v-model="macroShowYoyLine">显示同比增减量折线</el-checkbox>
+            <el-checkbox v-model="macroShowYoyPctLine">显示同比增长率(%)折线</el-checkbox>
+            <el-button size="small" text @click="macroMetric = ''">收起图表</el-button>
+          </div>
+          <div ref="macroChartEl" class="macroChart"></div>
+        </div>
+        <div v-else class="muted macroChartTip">
+          💡 点击上方任意指标（如「就业率」），查看该国该指标全部年份的柱形图与同比增减折线（低年份 → 高年份，从左往右）
+        </div>
+      </template>
+      <div v-else class="muted macroLoadingText">加载中…</div>
+    </div>
+    <template #footer>
+      <el-button @click="macroVisible = false">取消</el-button>
+      <el-button type="success" :loading="macroSaving" :disabled="!macroData" @click="submitMacroForm">💾 提交修改</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as am5 from '@amcharts/amcharts5'
 import * as am5map from '@amcharts/amcharts5/map'
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated'
 import am5geodata_worldLow from '@amcharts/amcharts5-geodata/worldLow'
-import { saveMapMarker, updateMapMarker, getMapMarker } from '@/lib/api.js'
+import * as echarts from 'echarts'
+import { saveMapMarker, updateMapMarker, getMapMarker, fetchCountryMacroByCountry, fetchCountryMacroByYear, fetchCountryMacroCountries, updateCountryMacro } from '@/lib/api.js'
 import { useWorldMapStore, TYPE_META } from '@/stores/WorldMapStore.js'
 import { SUB_MAPS, IMPORTANT_CITIES } from '@/lib/worldMapData.js'
 import { ZINC_SVG, ALUMINUM_SVG, SOYBEAN_SVG } from '@/lib/worldMapIcons.js'
-import { getCountryName } from '@/lib/worldCountries.js'
+import { getCountryName, resolveMacroCountry } from '@/lib/worldCountries.js'
 import { storeToRefs } from 'pinia'
 
 const store = useWorldMapStore()
@@ -405,12 +605,13 @@ function createPolygonSeries(geoJSON) {
     if (selectedPolygon && selectedPolygon !== ev.target) selectedPolygon.set('active', false)
     ev.target.set('active', true)
     selectedPolygon = ev.target
-    // 世界视图下点击国家 → 选中整国；行政区视图下点击区域 → 仅高亮
+    // 世界视图下点击国家 → 选中整国 + 弹出该国宏观指标表单；行政区视图下点击区域 → 仅高亮
     if (!viewingCountry.value) {
       const ctx = ev.target.dataItem.dataContext
       const id = ctx?.properties?.id || ctx?.id
       const en = ctx?.properties?.name || ctx?.name
       store.selectCountry({ id, en, zh: '' })
+      openMacroForm({ id, en })
     }
   })
   return polygonSeries
@@ -565,6 +766,476 @@ const markerForm = reactive({
   createdBy: '',
 })
 
+// ── 国家宏观指标弹窗（点击地图国家 → 选择年份 → 查询/编辑 country_macro_indicators） ──
+const macroVisible = ref(false)
+const macroLoading = ref(false)
+const macroSaving = ref(false)
+const macroData = ref(null)       // 当前记录（后端返回的 Map，含 id）
+const macroError = ref('')
+const macroCountryInfo = ref(null) // { id, en, query } 当前点击的国家
+const macroYears = ref([])         // 该国所有数据年份（降序）
+const macroYear = ref(null)        // 当前选中年份
+
+// —— 趋势图：点击某个指标 → 该国该指标全部年份柱形图 + 同比增减折线图 ——
+const macroMetric = ref('')        // 当前用于画图的指标 key（空 = 未选择，不显示图表）
+const macroHistory = ref([])       // 该国全部年份原始记录（by-country 结果）
+const macroHistoryLoading = ref(false)
+let macroHistoryQuery = ''         // 已缓存历史数据对应的国家名
+const macroShowBarLabel = ref(true) // 勾选：柱形图上显示数值
+const macroShowYoyLine = ref(true)  // 勾选：显示同比增减量折线（绝对值）
+const macroShowYoyPctLine = ref(true) // 勾选：显示同比增长率折线（%）
+const macroChartEl = ref(null)
+let macroChart = null
+
+// 参与趋势图的指标（key 与后端 toMap 字段一一对应）
+const MACRO_METRICS = [
+  { key: 'gdpUsd', label: 'GDP（现价美元）', unit: 'USD' },
+  { key: 'gdpGrowthPct', label: 'GDP 实际增长率', unit: '%' },
+  { key: 'cpiPct', label: 'CPI 同比涨幅', unit: '%' },
+  { key: 'ppiPct', label: 'PPI 同比涨幅', unit: '%' },
+  { key: 'inflationPct', label: '通胀率', unit: '%' },
+  { key: 'employmentRatePct', label: '就业率', unit: '%' },
+  { key: 'unemploymentRatePct', label: '失业率', unit: '%' },
+  { key: 'exchangeRateUsd', label: '汇率（1 美元 = ? 本币）', unit: '' },
+  { key: 'populationTotal', label: '总人口', unit: '人' },
+  { key: 'populationGrowthPct', label: '人口增长率', unit: '%' },
+  { key: 'medianAge', label: '年龄中位数', unit: '岁' },
+  { key: 'urbanPopulationPct', label: '城镇化率', unit: '%' },
+  { key: 'age014Pct', label: '0–14 岁占比', unit: '%' },
+  { key: 'age1564Pct', label: '15–64 岁占比', unit: '%' },
+  { key: 'age65PlusPct', label: '65 岁+ 占比', unit: '%' },
+  { key: 'exportsGoodsUsd', label: '货物出口额', unit: 'USD' },
+  { key: 'importsGoodsUsd', label: '货物进口额', unit: 'USD' },
+  { key: 'tradeOpennessPct', label: '贸易依存度', unit: '%' },
+  { key: 'importExportRatio', label: '进口 / 出口比', unit: '' },
+  { key: 'govtDebtTotal', label: '政府债务总额', unit: '本币' },
+  { key: 'govtDebtGdpPct', label: '政府债务 / GDP', unit: '%' },
+]
+const macroCountryCache = ref([])  // 有宏观数据的国家清单（缓存）
+let macroCountryCacheLoaded = false
+
+// 与后端 toMap 字段一一对应的可编辑表单
+const macroForm = reactive({
+  id: null,
+  country: '',
+  countryCode: '',
+  year: null,
+  region: '',
+  gdpUsd: '',
+  gdpGrowthPct: '',
+  cpiPct: '',
+  ppiPct: '',
+  inflationPct: '',
+  employmentRatePct: '',
+  unemploymentRatePct: '',
+  exchangeRateUsd: '',
+  populationTotal: '',
+  populationGrowthPct: '',
+  medianAge: '',
+  urbanPopulationPct: '',
+  age014Pct: '',
+  age1564Pct: '',
+  age65PlusPct: '',
+  exportsGoodsUsd: '',
+  importsGoodsUsd: '',
+  tradeOpennessPct: '',
+  importExportRatio: '',
+  govtDebtTotal: '',
+  govtDebtGdpPct: '',
+  govtDebtScope: '',
+  politicalSystem: '',
+  regimeType: '',
+  dataSource: '',
+  sourceUrl: '',
+  notes: '',
+})
+
+const MACRO_FORM_KEYS = Object.keys(macroForm)
+
+function resetMacroForm() {
+  for (const k of MACRO_FORM_KEYS) macroForm[k] = (k === 'id' || k === 'year') ? null : ''
+}
+
+function fillMacroForm(rec) {
+  for (const k of MACRO_FORM_KEYS) {
+    const v = rec ? rec[k] : undefined
+    macroForm[k] = (v === null || v === undefined) ? ((k === 'id' || k === 'year') ? null : '') : v
+  }
+}
+
+async function ensureMacroCountryCache() {
+  if (macroCountryCacheLoaded) return macroCountryCache.value
+  try {
+    macroCountryCache.value = await fetchCountryMacroCountries()
+  } catch {
+    macroCountryCache.value = []
+  }
+  macroCountryCacheLoaded = true
+  return macroCountryCache.value
+}
+
+async function openMacroForm({ id, en }) {
+  const list = await ensureMacroCountryCache()
+  const query = resolveMacroCountry(en, list)
+  macroCountryInfo.value = { id, en, query }
+  macroVisible.value = true
+  macroLoading.value = true
+  macroSaving.value = false
+  macroError.value = ''
+  macroData.value = null
+  macroYears.value = []
+  macroYear.value = null
+  macroMetric.value = ''
+  macroHistory.value = []
+  macroHistoryQuery = ''
+  macroHistoryLoading.value = false
+  disposeMacroChart()
+  resetMacroForm()
+
+  if (!query) {
+    macroLoading.value = false
+    macroError.value = `未收录「${en}」的宏观指标数据`
+    return
+  }
+  try {
+    // 1) 先取该国家所有年份，默认选中最新一年
+    const rows = await fetchCountryMacroByCountry(query)
+    const years = [...new Set((rows || []).map(r => r.year).filter(y => y != null))].sort((a, b) => b - a)
+    macroYears.value = years
+    // 缓存该国全部年份原始记录，供趋势图使用（点击指标时无需再次请求）
+    macroHistory.value = rows || []
+    macroHistoryQuery = query
+    if (!years.length) {
+      macroLoading.value = false
+      macroError.value = `未查询到「${query}」的宏观指标数据`
+      return
+    }
+    macroYear.value = years[0]
+    // 2) 按选中年份查询记录
+    await loadMacroYear(query, years[0])
+  } catch (e) {
+    macroLoading.value = false
+    macroError.value = `查询失败：${e?.message || e}`
+  }
+}
+
+// 按国家 + 年份查询并填充表单（与后端 by-year 接口对应，where country + year）
+async function loadMacroYear(query, year) {
+  macroLoading.value = true
+  macroError.value = ''
+  macroSaving.value = false
+  try {
+    const rows = await fetchCountryMacroByYear(query, year)
+    if (!rows || !rows.length) {
+      macroData.value = null
+      resetMacroForm()
+      macroError.value = `未查询到「${query}」${year} 年的宏观指标数据`
+      return
+    }
+    const rec = rows[0]
+    macroData.value = rec
+    fillMacroForm(rec)
+  } catch (e) {
+    macroError.value = `查询失败：${e?.message || e}`
+  } finally {
+    macroLoading.value = false
+  }
+}
+
+async function onMacroYearChange() {
+  if (!macroYear.value || !macroCountryInfo.value?.query) return
+  await loadMacroYear(macroCountryInfo.value.query, macroYear.value)
+}
+
+// 提交修改 → 后端 UPDATE
+async function submitMacroForm() {
+  const id = macroForm.id != null ? macroForm.id : macroData.value?.id
+  if (id == null) {
+    store.pushLog('⚠️ 缺少记录 id，无法保存')
+    return
+  }
+  if (!macroForm.country?.trim()) {
+    store.pushLog('⚠️ 国家名称不能为空')
+    return
+  }
+  macroSaving.value = true
+  try {
+    const resp = await updateCountryMacro(id, { ...macroForm })
+    if (resp) {
+      macroData.value = resp
+      fillMacroForm(resp)
+      store.pushLog(`✅ 已保存 ${resp.country} ${resp.year} 年宏观指标 (id=${resp.id})`)
+    } else {
+      store.pushLog('⚠️ 保存返回为空')
+    }
+  } catch (e) {
+    store.pushLog(`❌ 保存失败：${e?.message || e}`)
+  } finally {
+    macroSaving.value = false
+  }
+}
+
+// ────────── 趋势图：点击指标 → 全部年份柱形图 + 同比增减折线图 ──────────
+
+/** 表单内点击任意指标项（输入框或标签）→ 选中该指标并绘制趋势图 */
+function onMacroFormClick(e) {
+  const target = e?.target
+  if (!target?.closest) return
+  let el = target.closest('[data-metric]')
+  if (!el) {
+    // 点到表单项的 label / 空白区域时，取同一 form-item 内的指标输入框
+    const item = target.closest('.el-form-item')
+    if (item) el = item.querySelector('[data-metric]')
+  }
+  if (!el) return
+  const key = el.getAttribute('data-metric')
+  if (key) selectMacroMetric(key)
+}
+
+/** 选中指标 → 展示该国该指标「全部年份」的趋势图 */
+async function selectMacroMetric(key) {
+  if (!MACRO_METRICS.some((m) => m.key === key)) return
+  macroMetric.value = key
+  await ensureMacroHistory()
+  await nextTick()
+  // 图表在表单下方，点击指标后滚动到可视区域
+  macroChartEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+}
+
+/** 历史数据：优先复用 openMacroForm 已缓存的 by-country 结果 */
+async function ensureMacroHistory() {
+  const query = macroCountryInfo.value?.query
+  if (!query) return
+  if (macroHistoryQuery === query && macroHistory.value.length) return
+  macroHistoryLoading.value = true
+  try {
+    const rows = await fetchCountryMacroByCountry(query)
+    macroHistory.value = rows || []
+    macroHistoryQuery = query
+  } catch (e) {
+    store.pushLog(`❌ 趋势数据加载失败：${e?.message || e}`)
+    macroHistory.value = []
+    macroHistoryQuery = ''
+  } finally {
+    macroHistoryLoading.value = false
+  }
+}
+
+/** 当前指标元数据（标题 / 轴名用） */
+const macroCurrentMetric = computed(() =>
+  MACRO_METRICS.find((m) => m.key === macroMetric.value) || null,
+)
+
+function macroToNum(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** 数值友好格式：十亿/百万/千分位/小数 */
+function macroFmtNum(v) {
+  if (v === null || v === undefined || v === '') return ''
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  const abs = Math.abs(n)
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`
+  if (abs >= 1e4) return n.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  return n.toFixed(abs < 10 ? 2 : 1)
+}
+
+/**
+ * 组装序列：X 轴年份升序（低年份 → 高年份，从左往右）
+ * 柱形 = 指标值；折线 = 同比增减量（当年 − 上一年）
+ * 同一年有多条数据源记录时，优先取当前编辑记录的 dataSource，否则取第一条。
+ */
+const macroMetricSeries = computed(() => {
+  const key = macroMetric.value
+  if (!key || !macroHistory.value.length) return []
+  const prefer = macroForm.dataSource
+  const byYear = new Map()
+  for (const r of macroHistory.value) {
+    const y = Number(r?.year)
+    if (!Number.isFinite(y)) continue
+    const cur = byYear.get(y)
+    if (!cur) { byYear.set(y, r); continue }
+    if (prefer && r.dataSource === prefer && cur.dataSource !== prefer) byYear.set(y, r)
+  }
+  const years = [...byYear.keys()].sort((a, b) => a - b) // 低 → 高
+  const out = []
+  let prev = null
+  for (const y of years) {
+    const rec = byYear.get(y)
+    const value = macroToNum(rec[key])
+    const yoy = value !== null && prev !== null ? Number((value - prev).toFixed(4)) : null
+    // 同比增长率（%）：(当年 − 上一年) / |上一年| × 100
+    const yoyPct =
+      value !== null && prev !== null && prev !== 0
+        ? Number((((value - prev) / Math.abs(prev)) * 100).toFixed(4))
+        : null
+    out.push({ year: y, value, yoy, yoyPct, dataSource: rec.dataSource || '' })
+    if (value !== null) prev = value
+  }
+  return out
+})
+
+/** 绘制/刷新趋势图（勾选项实时生效） */
+function renderMacroChart() {
+  if (!macroMetric.value || !macroChartEl.value) return
+  const metric = macroCurrentMetric.value
+  if (!metric) return
+  if (!macroChart) macroChart = echarts.init(macroChartEl.value)
+
+  const data = macroMetricSeries.value
+  const years = data.map((d) => d.year)
+  const values = data.map((d) => d.value)
+  const yoys = data.map((d) => d.yoy)
+  const yoyPcts = data.map((d) => d.yoyPct)
+  const barName = metric.unit ? `${metric.label} (${metric.unit})` : metric.label
+
+  const series = [
+    {
+      name: barName,
+      type: 'bar',
+      data: values,
+      yAxisIndex: 0,
+      barMaxWidth: 42,
+      itemStyle: { color: '#409eff', borderRadius: [4, 4, 0, 0] },
+      label: {
+        show: macroShowBarLabel.value, // 勾选：柱形图上显示数值
+        position: 'top',
+        fontSize: 11,
+        formatter: (p) => macroFmtNum(p.value),
+      },
+    },
+  ]
+
+  if (macroShowYoyLine.value) {
+    series.push({
+      name: '同比增减量',
+      type: 'line',
+      data: yoys,
+      yAxisIndex: 1,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 7,
+      connectNulls: true,
+      itemStyle: { color: '#e6a23c' },
+      lineStyle: { width: 2, color: '#e6a23c' },
+      label: {
+        show: true, // 折线上显示同比增减量
+        position: 'bottom',
+        fontSize: 11,
+        color: '#e6a23c',
+        formatter: (p) =>
+          p.value === null || p.value === undefined ? '' : `${p.value > 0 ? '+' : ''}${macroFmtNum(p.value)}`,
+      },
+    })
+  }
+
+  if (macroShowYoyPctLine.value) {
+    series.push({
+      name: '同比增长率(%)',
+      type: 'line',
+      data: yoyPcts,
+      yAxisIndex: 2,
+      smooth: true,
+      symbol: 'triangle',
+      symbolSize: 7,
+      connectNulls: true,
+      itemStyle: { color: '#67c23a' },
+      lineStyle: { width: 2, color: '#67c23a', type: 'dashed' },
+      label: {
+        show: true, // 折线上显示同比增长率
+        position: 'top',
+        fontSize: 11,
+        color: '#67c23a',
+        formatter: (p) =>
+          p.value === null || p.value === undefined ? '' : `${p.value > 0 ? '+' : ''}${Number(p.value).toFixed(2)}%`,
+      },
+    })
+  }
+
+  macroChart.setOption(
+    {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      legend: { top: 0, data: series.map((s) => s.name) },
+      grid: {
+        left: 76,
+        right: macroShowYoyPctLine.value ? 138 : (macroShowYoyLine.value ? 86 : 40),
+        top: 42,
+        bottom: 44,
+      },
+      xAxis: {
+        type: 'category',
+        name: '年份',
+        nameLocation: 'middle',
+        nameGap: 26,
+        data: years,
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: metric.label,
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { formatter: (v) => macroFmtNum(v) },
+        },
+        {
+          type: 'value',
+          name: '同比增减量',
+          show: macroShowYoyLine.value,
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { formatter: (v) => macroFmtNum(v) },
+          splitLine: { show: false },
+        },
+        {
+          type: 'value',
+          name: '同比增长率(%)',
+          show: macroShowYoyPctLine.value,
+          position: 'right',
+          offset: 64,
+          nameTextStyle: { fontSize: 11 },
+          axisLabel: { formatter: (v) => `${macroFmtNum(v)}%` },
+          splitLine: { show: false },
+        },
+      ],
+      series,
+    },
+    { notMerge: true },
+  )
+}
+
+/** 数据/勾选项变化 → 下一帧重绘（等待图表容器渲染完成） */
+function scheduleMacroRender() {
+  if (!macroMetric.value) {
+    // 收起图表：销毁实例，避免下次展开时渲染到已移除的容器上
+    disposeMacroChart()
+    return
+  }
+  nextTick(() => renderMacroChart())
+}
+
+function resizeMacroChart() {
+  macroChart?.resize()
+}
+
+function disposeMacroChart() {
+  if (macroChart) {
+    macroChart.dispose()
+    macroChart = null
+  }
+}
+
+watch([macroMetric, macroShowBarLabel, macroShowYoyLine, macroShowYoyPctLine, macroHistory], scheduleMacroRender)
+
+function closeMacroForm() {
+  macroVisible.value = false
+  macroMetric.value = ''
+  macroHistory.value = []
+  macroHistoryQuery = ''
+  disposeMacroChart()
+}
+
 async function openMarkerForm({ lat, lng, type, comp }) {
   markerLat.value = lat
   markerLng.value = lng
@@ -709,10 +1380,13 @@ async function submitMarkerForm() {
 onMounted(() => {
   store.loadLocal()
   buildChart()
+  window.addEventListener('resize', resizeMacroChart)
 })
 
 onBeforeUnmount(() => {
   if (root) { root.dispose(); root = null }
+  window.removeEventListener('resize', resizeMacroChart)
+  disposeMacroChart()
 })
 </script>
 
@@ -868,6 +1542,45 @@ onBeforeUnmount(() => {
   color: var(--text-secondary, #666);
 }
 .markerCoords b { color: var(--primary-color, #409eff); }
+
+.macroBody { min-height: 120px; }
+.macroToolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.macroQuestion { font-weight: 700; font-size: 14px; }
+.macroRecordId { color: #909399; font-size: 12px; }
+.macroHint { margin-left: auto; font-size: 12px; }
+.macroGroup {
+  border: 1px solid var(--border-color-light, #eee);
+  border-radius: 10px;
+  padding: 4px 14px 2px;
+  margin-bottom: 14px;
+  background: var(--panel-bg-2, #fafafa);
+}
+.macroGroupTitle { font-weight: 700; font-size: 14px; padding: 10px 0 6px; }
+.macroGrid { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 18px; }
+.macroGrid .macroSpan2 { grid-column: 1 / -1; }
+.macroForm :deep(.el-form-item) { margin-bottom: 8px; }
+.macroLoadingText { padding: 40px 0; text-align: center; }
+
+/* —— 趋势图（点击指标后展开）—— */
+.macroChartCard {
+  margin-top: 16px;
+  border: 1px solid var(--border-color-light, #eee);
+  border-radius: 10px;
+  padding: 10px 14px 6px;
+  background: var(--panel-bg-2, #fafafa);
+}
+.macroChartHead {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.macroChartTitle { font-weight: 700; font-size: 14px; }
+.macroChart { width: 100%; height: 330px; }
+.macroChartTip { margin-top: 12px; font-size: 12px; line-height: 1.6; }
+/* 可点击查看趋势的指标输入框：给出可交互提示 */
+.macroForm :deep([data-metric]) { cursor: pointer; }
 
 .panel {
   display: flex;

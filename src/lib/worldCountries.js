@@ -83,6 +83,88 @@ export function getCountryName(countryId) {
   return rec || null
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 国家宏观指标名称解析
+// amCharts worldLow 英文国家名 → country_macro_indicators.country（世界银行口径）
+// 大部分可直接用规范化文本匹配，少数不同名的国家需要显式映射。
+// ─────────────────────────────────────────────────────────────────────
+
+const MACRO_COUNTRY_MAP = {
+  Russia: 'Russian Federation',
+  Vietnam: 'Viet Nam',
+  Türkiye: 'Turkiye',
+  Turkey: 'Turkiye',
+  'South Korea': 'Korea, Rep.',
+  'North Korea': "Korea, Dem. People's Rep.",
+  'Cape Verde': 'Cabo Verde',
+  Curaçao: 'Curacao',
+  "Côte d'Ivoire": "Cote d'Ivoire",
+  'Ivory Coast': "Cote d'Ivoire",
+  'Democratic Republic of Congo': 'Congo, Dem. Rep.',
+  'Congo (Kinshasa)': 'Congo, Dem. Rep.',
+  'Republic of Congo': 'Congo, Rep.',
+  'Congo (Brazzaville)': 'Congo, Rep.',
+  Kyrgyzstan: 'Kyrgyz Republic',
+  "Lao People's Democratic Republic": 'Lao PDR',
+  Laos: 'Lao PDR',
+  Macau: 'Macao SAR, China',
+  'Macao SAR': 'Macao SAR, China',
+  'Hong Kong SAR': 'Hong Kong SAR, China',
+  Slovakia: 'Slovak Republic',
+  'Saint Lucía': 'St. Lucia',
+  'Saint Lucia': 'St. Lucia',
+  'Saint Kitts and Nevis': 'St. Kitts and Nevis',
+  'Saint Vincent and the Grenadines': 'St. Vincent and the Grenadines',
+  'Saint Martin': 'St. Martin (French part)',
+  'Federated States of Micronesia': 'Micronesia, Fed. Sts.',
+  'Micronesia (country)': 'Micronesia, Fed. Sts.',
+  'Palestinian Territories': 'West Bank and Gaza',
+  'Palestine': 'West Bank and Gaza',
+  Nauru: 'Naoero',
+  Brunei: 'Brunei Darussalam',
+  'Virgin Islands': 'Virgin Islands (U.S.)',
+  'DR Congo': 'Congo, Dem. Rep.',
+  'Côte D’Ivoire': "Cote d'Ivoire",
+}
+
+/** 名称规范化：小写 + 仅保留字母数字 */
+function normalizeName(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[’']/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * 将地图英文国家名解析为数据库 country 名称。
+ * @param {string} mapName 地图国家名（如 "China"、"United States of America"）
+ * @param {Array<{country:string}>} dbCountries fetchCountryMacroCountries() 返回的国家清单
+ * @returns {string|null} 数据库中确切的 country 名称；库中无数据返回 null
+ */
+export function resolveMacroCountry(mapName, dbCountries) {
+  if (!mapName) return null
+  const direct = MACRO_COUNTRY_MAP[mapName]
+  if (direct) return direct
+
+  const k = normalizeName(mapName)
+  if (!k) return null
+  const list = Array.isArray(dbCountries) ? dbCountries : []
+
+  // 1) 规范化后完全一致
+  let hit = list.find((c) => normalizeName(c.country) === k)
+  if (hit) return hit.country
+
+  // 2) 双向包含匹配（处理 "United States of America" → "United States" 等）
+  hit = list.find((c) => {
+    const nk = normalizeName(c.country)
+    if (!nk) return false
+    return k.includes(nk) || nk.includes(k)
+  })
+  return hit ? hit.country : null
+}
+
 /**
  * 从自然语言文本中匹配国家（中文优先，其次英文）。
  * 返回 { id, en, zh, centroid } 或 null

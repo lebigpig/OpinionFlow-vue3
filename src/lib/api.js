@@ -114,6 +114,30 @@ export function worldMapAgent(content, systemPrompt) {
   })
 }
 
+// ── 国家宏观指标（country_macro_indicators，点击国家弹出表单） ──────
+export function fetchCountryMacroLatest(country) {
+  return request(`/api/country-macro-indicators/latest?country=${encodeURIComponent(country)}`)
+}
+
+export function fetchCountryMacroByCountry(country) {
+  return request(`/api/country-macro-indicators/by-country?country=${encodeURIComponent(country)}`)
+}
+
+export function fetchCountryMacroByYear(country, year) {
+  return request(`/api/country-macro-indicators/by-year?country=${encodeURIComponent(country)}&year=${encodeURIComponent(year)}`)
+}
+
+export function fetchCountryMacroCountries() {
+  return request('/api/country-macro-indicators/countries')
+}
+
+export function updateCountryMacro(id, data) {
+  return request(`/api/country-macro-indicators/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
 // ── 地图标记 CRUD（map_markers） ─────────────────────────────────
 export function saveMapMarker(data) {
   return request('/api/map-markers', {
