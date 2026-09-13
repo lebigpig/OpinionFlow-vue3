@@ -179,6 +179,21 @@ function fmtAmount(v) {
   return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 }
 
+/**
+ * 同比(%)：
+ * - 财务指标行：直接用后端已存好 yoyChange
+ * - 利润表 / 资产负债表 / 现金流量表：后端未提供，按 (本期-上期)/上期 计算
+ * - 上期缺失或为 0 时返回 null（无法计算，显示 '-'）
+ */
+function yoyOf(row) {
+  const rc = row?.yoyChange
+  if (rc !== null && rc !== undefined && rc !== '') return Number(rc)
+  const cur = Number(row?.valueCurrent)
+  const prev = Number(row?.valuePrevious)
+  if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev === 0) return null
+  return ((cur - prev) / prev) * 100
+}
+
 function indentStyle(row) {
   const lv = Number(row.itemLevel || 0)
   return { paddingLeft: `${Math.max(0, lv) * 14}px` }
@@ -333,9 +348,7 @@ onMounted(loadCompanies)
         </el-table-column>
         <el-table-column label="同比(%)" align="right" min-width="110">
           <template #default="{ row }">
-            <span v-if="isIndicatorTab && row.yoyChange !== null && row.yoyChange !== undefined">
-              {{ fmtAmount(row.yoyChange) }}%
-            </span>
+            <span v-if="yoyOf(row) !== null">{{ fmtAmount(yoyOf(row)) }}%</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -366,6 +379,20 @@ onMounted(loadCompanies)
                 </span>
               </div>
             </div>
+            <!-- 阅读器内财报（季度）切换下拉框 -->
+            <div class="readerPicker">
+              <span class="readerPickerLabel">财报：</span>
+              <el-select
+                v-model="currentReportId"
+                size="small"
+                style="width: 220px"
+                popper-class="readerSelectPopper"
+                :disabled="reportsLoading || !reports.length"
+                @change="loadStatement"
+              >
+                <el-option v-for="r in reportOptions" :key="r.id" :label="r.label" :value="r.id" />
+              </el-select>
+            </div>
             <div class="readerTabs">
               <button
                 v-for="t in READER_TABS"
@@ -379,7 +406,7 @@ onMounted(loadCompanies)
             <button type="button" class="readerClose" @click="closeReader">✕ 关闭</button>
           </div>
 
-          <div v-loading="statementsLoading" class="readerBody">
+          <div v-loading="statementLoading" class="readerBody">
             <el-table :data="readerRows" size="small" border height="100%" style="width: 100%">
               <el-table-column
                 :label="readerIsIndicator ? '指标名称' : '科目'"
@@ -406,7 +433,7 @@ onMounted(loadCompanies)
               </el-table-column>
               <el-table-column label="同比(%)" align="right" min-width="130">
                 <template #default="{ row }">
-                  <span v-if="readerIsIndicator && row.yoyChange != null">{{ fmtAmount(row.yoyChange) }}%</span>
+                  <span v-if="yoyOf(row) !== null">{{ fmtAmount(yoyOf(row)) }}%</span>
                   <span v-else>-</span>
                 </template>
               </el-table-column>
@@ -484,7 +511,8 @@ onMounted(loadCompanies)
 .readerHead {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   padding: 12px 18px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.5);
@@ -504,6 +532,13 @@ onMounted(loadCompanies)
   text-overflow: ellipsis;
 }
 .readerStat { margin-left: 10px; color: #909399; }
+.readerPicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.readerPickerLabel { font-size: 12px; color: #606266; white-space: nowrap; }
 .readerTabs { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 .readerTabBtn {
   border: 1px solid rgba(0, 0, 0, 0.12);
@@ -551,4 +586,62 @@ onMounted(loadCompanies)
 
 .readerFade-enter-active, .readerFade-leave-active { transition: opacity 0.22s ease; }
 .readerFade-enter-from, .readerFade-leave-to { opacity: 0; }
+</style>
+
+<style>
+/* 阅读器下拉面板（popper 渲染在 <body> 层级，不受 scoped 约束）
+   Element Plus popper 默认 z-index = 2000，低于阅读器遮罩 3000，
+   会被半透明遮罩盖住导致下拉列表看不见；这里提到阅读器之上。 */
+.readerSelectPopper {
+  z-index: 4000 !important;
+}
+
+/* ── 深色模式：阅读器整体变深灰底 + 白字 ── */
+html.dark .readerOverlay {
+  background: rgba(0, 0, 0, 0.42);
+}
+html.dark .readerPanel {
+  background: rgba(30, 34, 40, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+html.dark .readerHead {
+  background: rgba(36, 40, 46, 0.72);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+html.dark .readerTitle { color: #f2f4f7; }
+html.dark .readerSub { color: #b6bdc9; }
+html.dark .readerStat { color: #8d9095; }
+html.dark .readerPickerLabel { color: #9aa3ad; }
+html.dark .readerTabBtn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(58, 64, 74, 0.6);
+  color: #cfd3dc;
+}
+html.dark .readerTabBtn:hover {
+  background: rgba(64, 158, 255, 0.16);
+  border-color: rgba(64, 158, 255, 0.42);
+}
+html.dark .readerClose {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(58, 64, 74, 0.6);
+  color: #cfd3dc;
+}
+html.dark .readerClose:hover {
+  background: rgba(245, 108, 108, 0.16);
+  border-color: rgba(245, 108, 108, 0.5);
+  color: #f56c6c;
+}
+/* 表格：灰底 + 白字（默认浅色样式特异性更高，必须在此覆盖） */
+html.dark .readerBody .el-table,
+html.dark .readerBody .el-table__inner-wrapper,
+html.dark .readerBody .el-table tr,
+html.dark .readerBody .el-table th.el-table__cell,
+html.dark .readerBody .el-table td.el-table__cell {
+  background-color: rgba(42, 47, 54, 0.88);
+  color: #e5eaf3;
+}
+html.dark .readerBody .el-table__body tr:hover > td.el-table__cell {
+  background-color: rgba(64, 158, 255, 0.16);
+}
 </style>
