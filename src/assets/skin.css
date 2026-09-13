@@ -1,0 +1,849 @@
+/* ============================================================
+   OpinionFlow 皮肤样式（皮肤商城）
+   - 默认皮肤：无需任何样式（保持原生变量）
+   - macOS 皮肤：html.skin-mac —— 毛玻璃 / 交通灯 / 苹果字体 / 蓝色强调
+   本文件在 main.js 中最后引入，确保可覆盖 Element Plus 的变量。
+   ============================================================ */
+
+/* ── macOS 皮肤 · 浅色 ───────────────────────────────────── */
+html.skin-mac {
+  /* 系统字体栈（所有皮肤统一通过 --skin-font 声明） */
+  --skin-font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+    'PingFang SC', 'Hiragino Sans GB', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
+
+  /* 语义色（覆盖 main.css 的 :root） */
+  --bg-color: #e9edf3;
+  --panel-bg: rgba(246, 247, 249, 0.78);
+  --panel-bg-2: rgba(120, 130, 145, 0.14);
+  --text-primary: #1d1d1f;
+  --text-regular: #55575e;
+  --text-muted: #8a8d93;
+  --border-color: rgba(0, 0, 0, 0.14);
+  --border-color-light: rgba(0, 0, 0, 0.08);
+  --primary-color: #007aff;
+  --primary-hover: #0a84ff;
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 12px 34px rgba(0, 0, 0, 0.16), 0 1px 0 rgba(0, 0, 0, 0.06);
+  --glass-blur: blur(18px) saturate(1.4);
+  --card-radius: 14px;
+  --btn-radius: 10px;
+
+  /* Element Plus 变量覆盖（让 el-* 组件跟随皮肤） */
+  --el-color-primary: #007aff;
+  --el-color-primary-light-3: #4da2ff;
+  --el-color-primary-light-5: #8fc3ff;
+  --el-color-primary-light-7: #c8e2ff;
+  --el-color-primary-light-8: #e0edff;
+  --el-color-primary-light-9: #f0f7ff;
+  --el-color-primary-dark-2: #0060d6;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+/* ── macOS 皮肤 · 深色（与 html.dark 叠加） ───────────────── */
+html.skin-mac.dark {
+  --bg-color: #1b1d21;
+  --panel-bg: rgba(36, 38, 44, 0.86);
+  --panel-bg-2: rgba(90, 96, 108, 0.24);
+  --text-primary: #f2f4f7;
+  --text-regular: #cfd3da;
+  --text-muted: #8d9095;
+  --border-color: rgba(255, 255, 255, 0.16);
+  --border-color-light: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  --shadow-md: 0 14px 40px rgba(0, 0, 0, 0.55);
+
+  --el-bg-color: rgba(36, 38, 44, 0.9);
+  --el-bg-color-overlay: rgba(44, 47, 54, 0.96);
+  --el-text-color-primary: #f2f4f7;
+  --el-border-color: rgba(255, 255, 255, 0.16);
+  --el-border-color-light: rgba(255, 255, 255, 0.1);
+}
+
+/* ── macOS 皮肤 · 窗口 / 背景 / 面板 ─────────────────────── */
+/* 所有皮肤统一使用各自声明的字体栈 */
+html[class*="skin-"] body {
+  font-family: var(--skin-font, inherit);
+}
+
+html.skin-mac body {
+  background:
+    radial-gradient(1100px 620px at 16% 4%, rgba(10, 132, 255, 0.16), transparent 62%),
+    radial-gradient(980px 680px at 86% 20%, rgba(94, 151, 246, 0.14), transparent 60%),
+    linear-gradient(180deg, #eef1f6, #e4e9f0);
+  background-attachment: fixed;
+}
+
+html.skin-mac.dark body {
+  background:
+    radial-gradient(1100px 620px at 16% 4%, rgba(10, 132, 255, 0.12), transparent 62%),
+    radial-gradient(980px 680px at 86% 20%, rgba(64, 110, 200, 0.12), transparent 60%),
+    linear-gradient(180deg, #212530, #171a1f);
+  background-attachment: fixed;
+}
+
+/* 卡片：毛玻璃 + 柔和描边 */
+html.skin-mac .card,
+html.skin-mac .panel {
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-color-light);
+  box-shadow: var(--shadow-sm);
+}
+
+html.skin-mac .btn {
+  transition: all 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html.skin-mac .btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/* ── macOS 皮肤 · 浮层窗口交通灯（红黄绿圆点） ─────────────── */
+html.skin-mac .readerPanel,
+html.skin-mac .trendPanel,
+html.skin-mac .skinPanel {
+  position: relative;
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+}
+
+html.skin-mac .readerPanel::before,
+html.skin-mac .trendPanel::before,
+html.skin-mac .skinPanel::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 14px 0 0 #ffbd2e, 28px 0 0 #28c840;
+  z-index: 6;
+  pointer-events: none;
+}
+
+/* 给交通灯让位：浮层头部左内边距加大 */
+html.skin-mac .readerHead {
+  padding-left: 78px;
+}
+
+html.skin-mac .skinPanel .skinPanelHead {
+  padding-left: 56px;
+}
+
+/* ============================================================
+   Windows 11 —— Mica 材质 · Segoe UI · Windows 蓝
+   ============================================================ */
+html.skin-win11 {
+  --skin-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
+
+  --bg-color: #f3f3f3;
+  --panel-bg: rgba(252, 252, 252, 0.86);
+  --panel-bg-2: rgba(0, 0, 0, 0.035);
+  --text-primary: #1b1b1b;
+  --text-regular: #44474b;
+  --text-muted: #767676;
+  --border-color: rgba(0, 0, 0, 0.14);
+  --border-color-light: rgba(0, 0, 0, 0.07);
+  --primary-color: #0067c0;
+  --primary-hover: #1975c5;
+  --shadow-sm: 0 3px 12px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 12px 34px rgba(0, 0, 0, 0.18);
+  --glass-blur: blur(28px) saturate(1.2);
+  --card-radius: 8px;
+  --btn-radius: 6px;
+
+  --el-color-primary: #0067c0;
+  --el-color-primary-light-3: #3d8cd1;
+  --el-color-primary-light-5: #7db4e0;
+  --el-color-primary-light-7: #bdd7ee;
+  --el-color-primary-light-8: #d8e6f5;
+  --el-color-primary-light-9: #eff6fc;
+  --el-color-primary-dark-2: #00529a;
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-win11 body {
+  background:
+    radial-gradient(1000px 560px at 12% 0%, rgba(0, 103, 192, 0.18), transparent 60%),
+    radial-gradient(900px 620px at 88% 18%, rgba(120, 80, 200, 0.14), transparent 62%),
+    linear-gradient(180deg, #eef4fb, #e7ebf1);
+  background-attachment: fixed;
+}
+
+/* Mica 材质面板 */
+html.skin-win11 .card,
+html.skin-win11 .panel {
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-color-light);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================
+   Ubuntu / Linux 终端 —— 深紫底 · Ubuntu 橙 · 等宽字体
+   ============================================================ */
+html.skin-linux {
+  --skin-font: 'Ubuntu Mono', 'DejaVu Sans Mono', 'Cascadia Mono', Consolas, monospace;
+
+  --bg-color: #2c001e;
+  --panel-bg: rgba(48, 10, 36, 0.88);
+  --panel-bg-2: rgba(233, 84, 32, 0.12);
+  --text-primary: #f2eef1;
+  --text-regular: #cfc3c9;
+  --text-muted: #9b8b93;
+  --border-color: rgba(233, 84, 32, 0.35);
+  --border-color-light: rgba(255, 255, 255, 0.1);
+  --primary-color: #e95420;
+  --primary-hover: #f26b39;
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 12px 36px rgba(0, 0, 0, 0.6);
+  --glass-blur: blur(10px) saturate(1.1);
+  --card-radius: 6px;
+  --btn-radius: 4px;
+
+  --el-color-primary: #e95420;
+  --el-color-primary-light-3: #ef7f55;
+  --el-color-primary-light-5: #f4a689;
+  --el-color-primary-light-7: #f9cdbe;
+  --el-color-primary-light-8: #fbe0d8;
+  --el-color-primary-light-9: #fdf0ec;
+  --el-color-primary-dark-2: #ba4319;
+  --el-bg-color: rgba(48, 10, 36, 0.92);
+  --el-bg-color-overlay: rgba(58, 14, 44, 0.96);
+  --el-text-color-primary: #f2eef1;
+  --el-border-color: rgba(233, 84, 32, 0.35);
+  --el-border-color-light: rgba(255, 255, 255, 0.1);
+  --el-border-radius-base: 4px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-linux body {
+  background:
+    radial-gradient(900px 520px at 10% 0%, rgba(233, 84, 32, 0.18), transparent 62%),
+    linear-gradient(180deg, #300a24, #1e0616);
+  background-attachment: fixed;
+}
+
+/* 终端提示符式装饰：面板左侧橙色竖线 */
+html.skin-linux .panel,
+html.skin-linux .card {
+  border-left: 3px solid var(--primary-color);
+}
+
+/* ============================================================
+   Windows 95 —— 青色桌面 · 3D 凸起边框 · 像素无圆角
+   ============================================================ */
+html.skin-win95 {
+  --skin-font: 'MS Sans Serif', Tahoma, SimSun, '宋体', 'Courier New', monospace;
+
+  --bg-color: #008080;
+  --panel-bg: #c0c0c0;
+  --panel-bg-2: #d4d0c8;
+  --text-primary: #000000;
+  --text-regular: #000000;
+  --text-muted: #404040;
+  --border-color: #808080;
+  --border-color-light: #dfdfdf;
+  --primary-color: #000080;
+  --primary-hover: #1084d0;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --glass-blur: none;
+  --card-radius: 0;
+  --btn-radius: 0;
+
+  --el-color-primary: #000080;
+  --el-color-primary-light-3: #4d4d9f;
+  --el-color-primary-light-5: #8080bf;
+  --el-color-primary-light-7: #b3b3d9;
+  --el-color-primary-light-8: #cccccc;
+  --el-color-primary-light-9: #e6e6f2;
+  --el-color-primary-dark-2: #00006b;
+  --el-bg-color: #c0c0c0;
+  --el-bg-color-overlay: #c0c0c0;
+  --el-text-color-primary: #000000;
+  --el-border-color: #808080;
+  --el-border-radius-base: 0;
+  --el-border-radius-small: 0;
+  --el-border-radius-round: 0;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-win95 body {
+  background: #008080;
+  background-image: none;
+}
+
+/* 经典 3D 凸起边框（窗口 / 卡片 / 按钮） */
+html.skin-win95 .card,
+html.skin-win95 .panel {
+  border: 2px solid;
+  border-color: #ffffff #808080 #808080 #ffffff;
+  box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #404040;
+  border-radius: 0;
+  background: #c0c0c0;
+}
+
+html.skin-win95 .btn {
+  border: 2px solid;
+  border-color: #ffffff #808080 #808080 #ffffff;
+  box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #404040;
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+}
+
+html.skin-win95 .btn:hover:not(:disabled) {
+  background: #c0c0c0;
+  color: #000;
+  border-color: #ffffff #808080 #808080 #ffffff;
+}
+
+html.skin-win95 .btn:active:not(:disabled) {
+  border-color: #808080 #ffffff #ffffff #808080;
+  box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+  transform: none;
+}
+
+html.skin-win95 .btn.primary {
+  background: #c0c0c0;
+  color: #000;
+  font-weight: 700;
+}
+
+/* 标题文字加下划线，模拟 95 时代的链接 */
+html.skin-win95 .menuName {
+  color: #000080;
+  text-decoration: underline;
+}
+
+/* ============================================================
+   赛博朋克 2077 —— 霓虹黄 + 青蓝辉光 · 夜色硬边
+   ============================================================ */
+html.skin-cyberpunk {
+  --skin-font: 'Rajdhani', 'Orbitron', 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
+
+  --bg-color: #0a0a12;
+  --panel-bg: rgba(16, 16, 28, 0.82);
+  --panel-bg-2: rgba(252, 238, 10, 0.08);
+  --text-primary: #f5f7ff;
+  --text-regular: #c8d0e0;
+  --text-muted: #8b93a7;
+  --border-color: rgba(252, 238, 10, 0.45);
+  --border-color-light: rgba(0, 240, 255, 0.22);
+  --primary-color: #fcee0a;
+  --primary-hover: #fff04d;
+  --shadow-sm: 0 0 12px rgba(252, 238, 10, 0.18);
+  --shadow-md: 0 0 28px rgba(0, 240, 255, 0.22);
+  --glass-blur: blur(8px) saturate(1.4);
+  --card-radius: 2px;
+  --btn-radius: 2px;
+
+  --el-color-primary: #fcee0a;
+  --el-color-primary-light-3: #fdf24b;
+  --el-color-primary-light-5: #fdf67c;
+  --el-color-primary-light-7: #fef9ad;
+  --el-color-primary-light-8: #fefbd0;
+  --el-color-primary-light-9: #fffde0;
+  --el-color-primary-dark-2: #cabf08;
+  --el-bg-color: rgba(16, 16, 28, 0.92);
+  --el-bg-color-overlay: rgba(22, 22, 36, 0.96);
+  --el-text-color-primary: #f5f7ff;
+  --el-border-color: rgba(252, 238, 10, 0.35);
+  --el-border-color-light: rgba(0, 240, 255, 0.2);
+  --el-border-radius-base: 2px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-cyberpunk body {
+  background:
+    radial-gradient(900px 480px at 12% 0%, rgba(252, 238, 10, 0.16), transparent 62%),
+    radial-gradient(900px 560px at 88% 12%, rgba(0, 240, 255, 0.16), transparent 62%),
+    linear-gradient(180deg, #0d0d18, #07070f);
+  background-attachment: fixed;
+}
+
+/* 霓虹描边 + 辉光 */
+html.skin-cyberpunk .card,
+html.skin-cyberpunk .panel {
+  border: 1px solid var(--border-color-light);
+  box-shadow: 0 0 0 1px rgba(252, 238, 10, 0.14), 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+html.skin-cyberpunk .btn {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+html.skin-cyberpunk .btn.primary {
+  color: #0a0a12;
+  box-shadow: 0 0 14px rgba(252, 238, 10, 0.5);
+}
+
+/* ============================================================
+   黑客帝国（Matrix）—— 黑底绿字 · 极简终端 · 辉光
+   ============================================================ */
+html.skin-matrix {
+  --skin-font: 'Cascadia Mono', Consolas, 'Courier New', 'DejaVu Sans Mono', monospace;
+
+  --bg-color: #000000;
+  --panel-bg: rgba(0, 18, 4, 0.88);
+  --panel-bg-2: rgba(0, 255, 65, 0.08);
+  --text-primary: #00ff41;
+  --text-regular: #6bff8f;
+  --text-muted: #2f7a45;
+  --border-color: rgba(0, 255, 65, 0.42);
+  --border-color-light: rgba(0, 255, 65, 0.2);
+  --primary-color: #00ff41;
+  --primary-hover: #57ff85;
+  --shadow-sm: 0 0 14px rgba(0, 255, 65, 0.22);
+  --shadow-md: 0 0 30px rgba(0, 255, 65, 0.28);
+  --glass-blur: blur(6px);
+  --card-radius: 2px;
+  --btn-radius: 2px;
+
+  --el-color-primary: #00ff41;
+  --el-color-primary-light-3: #4dff77;
+  --el-color-primary-light-5: #80ffa0;
+  --el-color-primary-light-7: #b3ffc6;
+  --el-color-primary-light-8: #ccffd9;
+  --el-color-primary-light-9: #e6ffee;
+  --el-color-primary-dark-2: #00cc34;
+  --el-bg-color: rgba(0, 14, 3, 0.92);
+  --el-bg-color-overlay: rgba(0, 20, 5, 0.96);
+  --el-text-color-primary: #00ff41;
+  --el-border-color: rgba(0, 255, 65, 0.4);
+  --el-border-color-light: rgba(0, 255, 65, 0.2);
+  --el-border-radius-base: 2px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-matrix body {
+  background:
+    radial-gradient(800px 480px at 50% 0%, rgba(0, 255, 65, 0.08), transparent 65%),
+    #000000;
+  background-attachment: fixed;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.35);
+}
+
+html.skin-matrix .card,
+html.skin-matrix .panel {
+  border: 1px solid var(--border-color-light);
+  box-shadow: var(--shadow-sm), inset 0 0 30px rgba(0, 255, 65, 0.06);
+}
+
+html.skin-matrix .btn.primary {
+  color: #001a06;
+  font-weight: 700;
+}
+
+/* ============================================================
+   金融终端（Bloomberg）—— 黑金底 · 橙色高亮 · 等宽密集
+   ============================================================ */
+html.skin-bloomberg {
+  --skin-font: Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', 'Courier New', monospace;
+
+  --bg-color: #000000;
+  --panel-bg: rgba(18, 18, 18, 0.92);
+  --panel-bg-2: rgba(255, 158, 0, 0.08);
+  --text-primary: #f0f0f0;
+  --text-regular: #c8c8c8;
+  --text-muted: #8a8a8a;
+  --border-color: rgba(255, 158, 0, 0.4);
+  --border-color-light: rgba(255, 255, 255, 0.1);
+  --primary-color: #ff9e00;
+  --primary-hover: #ffb340;
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.7);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.8);
+  --glass-blur: blur(4px);
+  --card-radius: 2px;
+  --btn-radius: 2px;
+
+  --el-color-primary: #ff9e00;
+  --el-color-primary-light-3: #ffb740;
+  --el-color-primary-light-5: #ffcb73;
+  --el-color-primary-light-7: #ffdfa6;
+  --el-color-primary-light-8: #ffe9c2;
+  --el-color-primary-light-9: #fff4e0;
+  --el-color-primary-dark-2: #cc7e00;
+  --el-bg-color: rgba(18, 18, 18, 0.94);
+  --el-bg-color-overlay: rgba(26, 26, 26, 0.98);
+  --el-text-color-primary: #f0f0f0;
+  --el-border-color: rgba(255, 158, 0, 0.35);
+  --el-border-color-light: rgba(255, 255, 255, 0.1);
+  --el-border-radius-base: 2px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-bloomberg body {
+  background: linear-gradient(180deg, #0a0a0a, #050505);
+  background-attachment: fixed;
+}
+
+/* 终端面板：顶部橙色标题线（Bloomberg 标志性风格） */
+html.skin-bloomberg .card,
+html.skin-bloomberg .panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 2px solid var(--primary-color);
+  box-shadow: var(--shadow-sm);
+}
+
+html.skin-bloomberg .btn.primary {
+  color: #1a1200;
+  font-weight: 700;
+}
+
+/* 彭博终端标志：顶部橙色工具栏 + 黑底绿字数据 */
+html.skin-bloomberg .header.card {
+  background: linear-gradient(180deg, #ff8000, #f26522);
+  border: 1px solid #cc5500;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.skin-bloomberg .header.card .logoText,
+html.skin-bloomberg .header.card .currentMenu .muted,
+html.skin-bloomberg .header.card .menuName {
+  color: #101010;
+  -webkit-text-fill-color: #101010;
+  background: none;
+}
+
+html.skin-bloomberg .header.card .badge {
+  color: #101010;
+  border-color: rgba(0, 0, 0, 0.35);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* 密集表格：小字号 + 紧凑行高，模拟终端数据网格 */
+html.skin-bloomberg .el-table {
+  font-size: 12px;
+}
+html.skin-bloomberg .el-table .el-table__cell {
+  padding: 4px 0;
+}
+/* 表格数值用终端绿 */
+html.skin-bloomberg .readerBody .el-table td.el-table__cell {
+  color: #d7ffb8;
+}
+
+/* ============================================================
+   Google —— 极简留白 · 胶囊圆角 · 零装饰
+   ============================================================ */
+html.skin-google {
+  --skin-font: Roboto, Arial, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  --bg-color: #ffffff;
+  --panel-bg: #ffffff;
+  --panel-bg-2: #f8f9fa;
+  --text-primary: #202124;
+  --text-regular: #3c4043;
+  --text-muted: #70757a;
+  --border-color: #dadce0;
+  --border-color-light: #eceff1;
+  --primary-color: #4285f4;
+  --primary-hover: #1a73e8;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 10px rgba(60, 64, 67, 0.14);
+  --glass-blur: none;
+  --card-radius: 24px;
+  --btn-radius: 20px;
+
+  --el-color-primary: #4285f4;
+  --el-color-primary-light-3: #6ea0f7;
+  --el-color-primary-light-5: #a0c0fa;
+  --el-color-primary-light-7: #c6dafa;
+  --el-color-primary-light-8: #dae7fc;
+  --el-color-primary-light-9: #ecf3fe;
+  --el-color-primary-dark-2: #1a73e8;
+  --el-border-radius-base: 20px;
+  --el-border-radius-small: 14px;
+  --el-bg-color: #ffffff;
+  --el-text-color-primary: #202124;
+  --el-border-color: #dadce0;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-google body {
+  background: #ffffff;
+}
+
+/* 极简：只留极浅描边，无阴影无毛玻璃 */
+html.skin-google .card,
+html.skin-google .panel {
+  background: #ffffff;
+  border: 1px solid var(--border-color-light);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Logo 用 Google 四色渐变 */
+html.skin-google .logoText {
+  background: linear-gradient(90deg, #4285f4 0%, #ea4335 30%, #fbbc05 58%, #34a853 86%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+html.skin-google .btn {
+  color: #3c4043;
+  border-color: #dadce0;
+  background: #f8f9fa;
+}
+
+html.skin-google .btn.primary {
+  color: #ffffff;
+  background: #4285f4;
+  border-color: #4285f4;
+}
+
+/* ============================================================
+   Craigslist —— 纯文字链接 · 零设计感 · 白底方角
+   ============================================================ */
+html.skin-craigslist {
+  --skin-font: Arial, Helvetica, 'Microsoft YaHei', sans-serif;
+
+  --bg-color: #ffffff;
+  --panel-bg: #ffffff;
+  --panel-bg-2: #f5f5f5;
+  --text-primary: #000000;
+  --text-regular: #222222;
+  --text-muted: #666666;
+  --border-color: #cccccc;
+  --border-color-light: #dddddd;
+  --primary-color: #0000ee; /* 浏览器默认链接蓝 */
+  --primary-hover: #551a8b; /* 已访问链接紫 */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --glass-blur: none;
+  --card-radius: 0;
+  --btn-radius: 0;
+
+  --el-color-primary: #0000ee;
+  --el-color-primary-light-3: #4d4df2;
+  --el-color-primary-light-5: #8080f5;
+  --el-color-primary-light-7: #b3b3f8;
+  --el-color-primary-light-8: #cccccc;
+  --el-color-primary-light-9: #e6e6fa;
+  --el-color-primary-dark-2: #0000be;
+  --el-bg-color: #ffffff;
+  --el-text-color-primary: #000000;
+  --el-border-color: #cccccc;
+  --el-border-radius-base: 0;
+  --el-border-radius-small: 0;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-craigslist body {
+  background: #ffffff;
+}
+
+html.skin-craigslist .card,
+html.skin-craigslist .panel {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 一切可点的东西都退回"纯文字链接" */
+html.skin-craigslist .btn,
+html.skin-craigslist .btn.primary {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--primary-color);
+  font-weight: 400;
+  text-decoration: underline;
+  padding: 2px 4px;
+}
+html.skin-craigslist .btn:hover:not(:disabled) {
+  background: transparent;
+  color: var(--primary-hover);
+}
+html.skin-craigslist .menuName {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+/* ============================================================
+   Wikipedia —— 蓝白配色 · 衬线标题 · 淡蓝内容框
+   ============================================================ */
+html.skin-wikipedia {
+  --skin-font: sans-serif, Arial, 'Helvetica Neue', 'Microsoft YaHei';
+
+  --bg-color: #f6f6f6;
+  --panel-bg: #ffffff;
+  --panel-bg-2: #f8f9fa;
+  --text-primary: #202122;
+  --text-regular: #202122;
+  --text-muted: #54595d;
+  --border-color: #a2a9b1;
+  --border-color-light: #c8ccd1;
+  --primary-color: #0645ad; /* Wikipedia 链接蓝 */
+  --primary-hover: #3366cc;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --glass-blur: none;
+  --card-radius: 0;
+  --btn-radius: 2px;
+
+  --el-color-primary: #0645ad;
+  --el-color-primary-light-3: #4c78c6;
+  --el-color-primary-light-5: #829fd6;
+  --el-color-primary-light-7: #b4c7e6;
+  --el-color-primary-light-8: #d0dcef;
+  --el-color-primary-light-9: #e7eef8;
+  --el-color-primary-dark-2: #053a8a;
+  --el-bg-color: #ffffff;
+  --el-text-color-primary: #202122;
+  --el-border-color: #a2a9b1;
+  --el-border-color-light: #c8ccd1;
+  --el-border-radius-base: 2px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-wikipedia body {
+  background: #f6f6f6;
+}
+
+/* 内容区：白底 + Wikipedia 标志性的淡蓝边框 */
+html.skin-wikipedia .card,
+html.skin-wikipedia .panel {
+  background: #ffffff;
+  border: 1px solid #a7d7f9;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 标题使用衬线字体（Linux Libertine 风格） */
+html.skin-wikipedia .logoText,
+html.skin-wikipedia .sectionTitle,
+html.skin-wikipedia .cardHeader,
+html.skin-wikipedia .readerTitle,
+html.skin-wikipedia .skinPanelTitle {
+  font-family: 'Linux Libertine', Georgia, 'Times New Roman', 'Songti SC', serif;
+}
+
+html.skin-wikipedia .menuName {
+  color: #0645ad;
+  text-decoration: underline;
+}
+
+/* ============================================================
+   Reddit（旧版）—— 浅蓝顶栏 · 高密度文字链接 · Verdana
+   ============================================================ */
+html.skin-reddit {
+  --skin-font: Verdana, arial, helvetica, 'Microsoft YaHei', sans-serif;
+
+  --bg-color: #cee3f8; /* 旧版 Reddit 浅蓝背景 */
+  --panel-bg: #ffffff;
+  --panel-bg-2: #eff7ff;
+  --text-primary: #222222;
+  --text-regular: #333333;
+  --text-muted: #737373;
+  --border-color: #c6d9e9;
+  --border-color-light: #dbeaf7;
+  --primary-color: #336699; /* 旧版 Reddit 链接蓝 #369 */
+  --primary-hover: #264d73;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --glass-blur: none;
+  --card-radius: 4px;
+  --btn-radius: 3px;
+
+  --el-color-primary: #336699;
+  --el-color-primary-light-3: #5c85ad;
+  --el-color-primary-light-5: #85a3c2;
+  --el-color-primary-light-7: #aec1d6;
+  --el-color-primary-light-8: #c2d1e0;
+  --el-color-primary-light-9: #e0eaf3;
+  --el-color-primary-dark-2: #29527a;
+  --el-bg-color: #ffffff;
+  --el-text-color-primary: #222222;
+  --el-border-color: #c6d9e9;
+  --el-border-radius-base: 3px;
+  --el-font-family: var(--skin-font, inherit);
+}
+
+html.skin-reddit body {
+  background: #cee3f8;
+}
+
+html.skin-reddit .card,
+html.skin-reddit .panel {
+  background: #ffffff;
+  border: 1px solid #c6d9e9;
+  border-radius: 4px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 头部：旧版 Reddit 的浅蓝导航条 */
+html.skin-reddit .header.card {
+  background: linear-gradient(180deg, #cee3f8, #b3d4f0);
+  border: 1px solid #9dbfdd;
+}
+
+html.skin-reddit .menuName {
+  color: #336699;
+}
+
+/* 高密度：小字号 + 紧凑行距 */
+html.skin-reddit .el-table {
+  font-size: 12px;
+}
+html.skin-reddit .el-table .el-table__cell {
+  padding: 5px 0;
+}
+
+/* ============================================================
+   补齐 Element Plus 常用变量
+   固定浅色 / 固定深色的皮肤与 html.dark 叠加时，避免局部组件
+   仍沿用主题的填充色而产生不协调
+   ============================================================ */
+html.skin-google,
+html.skin-craigslist,
+html.skin-wikipedia,
+html.skin-reddit,
+html.skin-win11,
+html.skin-win95 {
+  --el-bg-color-page: #f5f5f5;
+  --el-fill-color: #f0f0f0;
+  --el-fill-color-light: #f5f5f5;
+  --el-fill-color-lighter: #fafafa;
+  --el-fill-color-blank: #ffffff;
+  --el-text-color-regular: #444444;
+  --el-text-color-secondary: #888888;
+  --el-border-color-lighter: #e8e8e8;
+  --el-border-color-extra-light: #f0f0f0;
+}
+
+html.skin-linux,
+html.skin-cyberpunk,
+html.skin-matrix,
+html.skin-bloomberg,
+html.skin-mac.dark {
+  --el-bg-color-page: #0a0a0a;
+  --el-fill-color: rgba(255, 255, 255, 0.08);
+  --el-fill-color-light: rgba(255, 255, 255, 0.06);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.04);
+  --el-text-color-regular: #c8c8c8;
+  --el-text-color-secondary: #8a8a8a;
+  --el-border-color-lighter: rgba(255, 255, 255, 0.12);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.08);
+}
+
