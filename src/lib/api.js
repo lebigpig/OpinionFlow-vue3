@@ -139,8 +139,13 @@ export function updateCountryMacro(id, data) {
 }
 
 // ── 中国企业财报（company_china 库，微服务 opinionflow-company） ──
-export function fetchCompanyList({ keyword, page = 0, size = 20 } = {}) {
-  return request(`/api/company/list?page=${page}&size=${size}${qs({ keyword })}`)
+export function fetchCompanyList({ keyword, industry, page = 0, size = 20, sortBy, sortDir } = {}) {
+  return request(`/api/company/list?page=${page}&size=${size}${qs({ keyword, industry, sortBy, sortDir })}`)
+}
+
+/** 全部所属行业（去重、升序，供前端下拉框选择） */
+export function fetchCompanyIndustries() {
+  return request('/api/company/industries')
 }
 
 export function fetchCompanyDetail(id) {

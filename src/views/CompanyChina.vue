@@ -1,7 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import * as echarts from 'echarts'
 import { useTheme } from '@/composables/useTheme'
+import { useCompanyStore } from '@/stores/CompanyStore'
 import {
   fetchCompanyList,
   fetchCompanyDetail,
@@ -12,11 +14,19 @@ import {
 
 const keyword = ref('')
 const page = ref(0)
-const size = ref(20)
+const size = ref(10)
 const total = ref(0)
 const companies = ref([])
 const listLoading = ref(false)
 const listError = ref('')
+
+// 列表排序（股票代码 / 公司全称 / 简称 / 交易所 / 所属行业，升序或降序）
+const sortBy = ref('companyCode')
+const sortDir = ref('asc')
+
+// 行业清单存 Pinia（stores/CompanyStore.js），下拉框直接消费其中的行业
+const companyStore = useCompanyStore()
+const { industries, industryFilter } = storeToRefs(companyStore)
 
 const currentCompany = ref(null)
 const reports = ref([])
@@ -39,15 +49,35 @@ async function loadCompanies() {
   listLoading.value = true
   listError.value = ''
   try {
-    const res = await fetchCompanyList({ keyword: keyword.value, page: page.value, size: size.value })
+    const res = await fetchCompanyList({
+      keyword: keyword.value,
+      industry: industryFilter.value,
+      page: page.value,
+      size: size.value,
+      sortBy: sortBy.value,
+      sortDir: sortDir.value,
+    })
     companies.value = res?.list || []
     total.value = res?.total || 0
+    // 把本次查询到的「所属行业」并入 Pinia，保证下拉框能选到查询结果里的行业
+    companyStore.mergeIndustries(companies.value)
   } catch (e) {
     listError.value = `加载公司列表失败：${e?.message || e}`
     companies.value = []
     total.value = 0
   } finally {
     listLoading.value = false
+  }
+}
+
+// 详情面板 DOM 引用：点击「查看详情」后把视口下移到该面板
+const detailPanelRef = ref(null)
+
+/** 视口平滑下移到详情面板顶部 */
+function scrollToDetail() {
+  const el = detailPanelRef.value
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
 
@@ -62,6 +92,9 @@ async function selectCompany(row) {
   activeTab.value = 'income'
   statementError.value = ''
   reportsLoading.value = true
+  // 详情面板一渲染就下移视口（不等数据加载完，点击即响应）
+  await nextTick()
+  scrollToDetail()
   try {
     const res = await fetchCompanyDetail(row.id)
     currentCompany.value = res?.company || row
@@ -103,6 +136,8 @@ function backToList() {
   balance.value = []
   cashflow.value = []
   indicators.value = []
+  // 返回列表：视口滚回顶部，避免停留在已消失的详情位置
+  nextTick(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
 }
 
 async function onReportRowClick(r) {
@@ -152,6 +187,29 @@ function search() {
 
 function onPageChange(p) {
   page.value = p - 1
+  loadCompanies()
+}
+
+/**
+ * 表头排序（el-table sortable="custom"）
+ * order: 'ascending' | 'descending' | null（取消排序回到默认股票代码升序）
+ * 排序交由后端执行，保证分页数据顺序正确
+ */
+function onSortChange({ prop, order }) {
+  if (!prop || !order) {
+    sortBy.value = 'companyCode'
+    sortDir.value = 'asc'
+  } else {
+    sortBy.value = prop
+    sortDir.value = order === 'ascending' ? 'asc' : 'desc'
+  }
+  page.value = 0
+  loadCompanies()
+}
+
+/** 行业下拉框切换（行业清单来自 Pinia） */
+function onIndustryChange() {
+  page.value = 0
   loadCompanies()
 }
 
@@ -420,7 +478,11 @@ watch(isDark, () => {
   if (trendOpen.value) nextTick(renderTrendChart)
 })
 
-onMounted(loadCompanies)
+onMounted(() => {
+  // 首次进入：加载公司列表 + 拉取全部行业存入 Pinia（供行业下拉框选择）
+  loadCompanies()
+  companyStore.loadIndustries()
+})
 </script>
 
 <template>
@@ -432,9 +494,21 @@ onMounted(loadCompanies)
           v-model="keyword"
           placeholder="股票代码 / 公司名称"
           clearable
-          style="width: 260px"
+          style="width: 240px"
           @keyup.enter="search"
         />
+        <!-- 行业下拉框：选项来自 Pinia（stores/CompanyStore.js 中的 industries） -->
+        <el-select
+          v-model="industryFilter"
+          placeholder="所属行业（全部）"
+          clearable
+          filterable
+          :loading="companyStore.industriesLoading"
+          style="width: 200px"
+          @change="onIndustryChange"
+        >
+          <el-option v-for="ind in industries" :key="ind" :label="ind" :value="ind" />
+        </el-select>
         <el-button type="primary" @click="search">搜索</el-button>
         <el-button @click="loadCompanies">刷新</el-button>
       </div>
@@ -449,13 +523,16 @@ onMounted(loadCompanies)
         size="small"
         highlight-current-row
         style="width: 100%"
+        :default-sort="{ prop: 'companyCode', order: 'ascending' }"
+        @sort-change="onSortChange"
         @row-click="selectCompany"
       >
-        <el-table-column prop="companyCode" label="股票代码" width="110" />
-        <el-table-column prop="companyName" label="公司全称" min-width="220" />
-        <el-table-column prop="shortName" label="简称" width="130" />
-        <el-table-column prop="exchange" label="交易所" width="100" />
-        <el-table-column prop="industry" label="所属行业" width="160" />
+        <!-- 五列均支持升序 / 降序（点击表头排序，排序由后端执行） -->
+        <el-table-column prop="companyCode" label="股票代码" width="110" sortable="custom" />
+        <el-table-column prop="companyName" label="公司全称" min-width="220" sortable="custom" />
+        <el-table-column prop="shortName" label="简称" width="130" sortable="custom" />
+        <el-table-column prop="exchange" label="交易所" width="100" sortable="custom" />
+        <el-table-column prop="industry" label="所属行业" width="160" sortable="custom" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" text @click.stop="selectCompany(row)">
@@ -475,7 +552,7 @@ onMounted(loadCompanies)
       </div>
     </div>
 
-    <div v-if="currentCompany" class="panel detailPanel">
+    <div v-if="currentCompany" ref="detailPanelRef" class="panel detailPanel">
       <div class="detailHead">
         <el-button size="small" @click="backToList">← 返回列表</el-button>
         <span class="companyName">{{ currentCompany.companyName }}</span>
@@ -501,33 +578,6 @@ onMounted(loadCompanies)
 
       <el-alert v-if="statementError" :title="statementError" type="error" show-icon :closable="false" />
 
-      <div class="sectionTitle">财报列表（company JOIN financial_report）</div>
-      <el-table
-        v-if="reports.length"
-        :data="reports"
-        size="small"
-        border
-        highlight-current-row
-        style="width: 100%; margin-bottom: 12px"
-        @row-click="onReportRowClick"
-      >
-        <el-table-column prop="fiscalYear" label="财年" width="80" />
-        <el-table-column prop="fiscalPeriod" label="期间" width="80" />
-        <el-table-column prop="reportType" label="类型" width="110" />
-        <el-table-column prop="reportDate" label="报告日期" width="120" />
-        <el-table-column prop="publishDate" label="披露日期" width="120" />
-        <el-table-column prop="currency" label="币种" width="70" />
-        <el-table-column prop="unit" label="单位" width="80" />
-        <el-table-column prop="auditStatus" label="审计" width="110" />
-        <el-table-column prop="parseStatus" label="解析状态" width="110" />
-        <el-table-column label="各表行数（利润 / 资产负债 / 现金流 / 指标）" min-width="250">
-          <template #default="{ row }">
-            {{ row.incomeCount ?? 0 }} / {{ row.balanceCount ?? 0 }} /
-            {{ row.cashflowCount ?? 0 }} / {{ row.indicatorCount ?? 0 }}
-          </template>
-        </el-table-column>
-      </el-table>
-
       <div v-if="reports.length" class="sectionTitle">
         各表明细（三表 UNION ALL + 财务指标）
         <el-button size="small" text type="primary" @click="openReader(activeTab)">⛶ 全屏阅读</el-button>
@@ -545,7 +595,7 @@ onMounted(loadCompanies)
         :data="activeRows"
         size="small"
         border
-        max-height="520"
+        max-height="1550"
         style="width: 100%"
       >
         <el-table-column
@@ -579,6 +629,33 @@ onMounted(loadCompanies)
         v-if="reports.length && !statementLoading && !activeRows.length"
         description="该报表暂无数据"
       />
+
+      <div class="sectionTitle">财报列表（company JOIN financial_report）</div>
+      <el-table
+        v-if="reports.length"
+        :data="reports"
+        size="small"
+        border
+        highlight-current-row
+        style="width: 100%; margin-bottom: 0"
+        @row-click="onReportRowClick"
+      >
+        <el-table-column prop="fiscalYear" label="财年" width="80" />
+        <el-table-column prop="fiscalPeriod" label="期间" width="80" />
+        <el-table-column prop="reportType" label="类型" width="110" />
+        <el-table-column prop="reportDate" label="报告日期" width="120" />
+        <el-table-column prop="publishDate" label="披露日期" width="120" />
+        <el-table-column prop="currency" label="币种" width="70" />
+        <el-table-column prop="unit" label="单位" width="80" />
+        <el-table-column prop="auditStatus" label="审计" width="110" />
+        <el-table-column prop="parseStatus" label="解析状态" width="110" />
+        <el-table-column label="各表行数（利润 / 资产负债 / 现金流 / 指标）" min-width="250">
+          <template #default="{ row }">
+            {{ row.incomeCount ?? 0 }} / {{ row.balanceCount ?? 0 }} /
+            {{ row.cashflowCount ?? 0 }} / {{ row.indicatorCount ?? 0 }}
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <el-empty
