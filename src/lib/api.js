@@ -174,6 +174,18 @@ export function fetchCompanyIndicators(reportId) {
   return request(`/api/company/reports/${reportId}/indicators`)
 }
 
+/** 某指标的历史走势：该指标在所有财报（各季度/年度）中的本期值、上期值、同比（时间升序） */
+export function fetchCompanyIndicatorHistory(companyId, indicatorCode) {
+  return request(`/api/company/${companyId}/indicators/${encodeURIComponent(indicatorCode)}/history`)
+}
+
+/** 利润表/资产负债表/现金流量表某一科目的历史走势（tableType: income | balance | cashflow） */
+export function fetchCompanyStatementHistory(companyId, tableType, itemName) {
+  return request(
+    `/api/company/${companyId}/statements/${tableType}/history?itemName=${encodeURIComponent(itemName)}`,
+  )
+}
+
 // ── 地图标记 CRUD（map_markers） ─────────────────────────────────
 export function saveMapMarker(data) {
   return request('/api/map-markers', {

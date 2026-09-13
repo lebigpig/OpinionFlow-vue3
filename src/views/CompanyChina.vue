@@ -1,9 +1,13 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import * as echarts from 'echarts'
+import { useTheme } from '@/composables/useTheme'
 import {
   fetchCompanyList,
   fetchCompanyDetail,
   fetchCompanyReportDetail,
+  fetchCompanyIndicatorHistory,
+  fetchCompanyStatementHistory,
 } from '@/lib/api.js'
 
 const keyword = ref('')
@@ -198,6 +202,223 @@ function indentStyle(row) {
   const lv = Number(row.itemLevel || 0)
   return { paddingLeft: `${Math.max(0, lv) * 14}px` }
 }
+
+// ===== 指标走势图：阅读器财务指标 tab 点击“本期值”弹出 =====
+const { isDark } = useTheme()
+
+const trendOpen = ref(false)
+const trendLoading = ref(false)
+const trendError = ref('')
+const trendMeta = ref(null) // { indicatorName, indicatorCode, unit }
+const trendPoints = ref([]) // 后端返回的全部历史点（财年/期间升序）
+const trendGroup = ref('quarter') // 'quarter' | 'year'
+const trendChartEl = ref(null)
+const trendChecked = ref({}) // { label: true/false } —— 勾选 = 图表中显示该期数据
+let trendChartInst = null
+
+/** 期间排序权重：Q1 < Q2 < H1 < Q3 < Q4 < FY */
+function periodRank(p) {
+  switch (String(p ?? '').toUpperCase()) {
+    case 'Q1': return 1
+    case 'Q2': return 2
+    case 'H1': return 3
+    case 'Q3': return 4
+    case 'Q4': return 5
+    case 'FY': return 6
+    default: return 99
+  }
+}
+
+/** 当前展示模式（季度/年度）下的点，带 x 轴 label */
+const trendGroupPoints = computed(() => {
+  if (trendGroup.value !== 'year') {
+    return trendPoints.value.map((p) => ({ label: `${p.fiscalYear ?? ''}${p.fiscalPeriod ?? ''}`, ...p }))
+  }
+  // 年度展示：按财年去重，取该年期间权重最大的一期（优先年报，否则当年最后一期）
+  const byYear = new Map()
+  for (const p of trendPoints.value) {
+    const y = p.fiscalYear
+    const prev = byYear.get(y)
+    if (!prev || periodRank(p.fiscalPeriod) > periodRank(prev.fiscalPeriod)) {
+      byYear.set(y, { ...p })
+    }
+  }
+  return [...byYear.values()]
+    .sort((a, b) => (a.fiscalYear || 0) - (b.fiscalYear || 0))
+    .map((p) => ({ label: `${p.fiscalYear ?? ''}`, ...p }))
+})
+
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+const INCOME_TAB_TYPES = ['income', 'balance', 'cashflow']
+const TAB_LABELS = { income: '利润表', balance: '资产负债表', cashflow: '现金流量表', indicators: '财务指标' }
+
+/** 打开科目/指标走势图：财务指标按 indicatorCode，利润表/资产负债表/现金流量表按科目名称 */
+async function openTrend(row) {
+  const companyId = currentCompany.value?.id
+  if (!companyId || !row) return
+  const tab = readerTab.value
+  trendOpen.value = true
+  trendLoading.value = true
+  trendError.value = ''
+  try {
+    let points = []
+    if (tab === 'indicators') {
+      const code = row?.parentItem || row?.indicatorCode
+      const res = await fetchCompanyIndicatorHistory(companyId, code)
+      points = (res?.points || []).map((p) => ({
+        fiscalYear: p.fiscalYear,
+        fiscalPeriod: p.fiscalPeriod,
+        reportType: p.reportType,
+        value: p.indicatorValue,
+        valuePrevious: p.valuePrevious,
+        yoyChange: p.yoyChange,
+      }))
+      trendMeta.value = { title: res?.indicatorName || row.itemName || code, sub: code, unit: res?.unit }
+    } else {
+      const tableType = INCOME_TAB_TYPES.includes(tab) ? tab : 'income'
+      const res = await fetchCompanyStatementHistory(companyId, tableType, row.itemName)
+      points = (res?.points || []).map((p) => {
+        const cur = Number(p.valueCurrent)
+        const prev = Number(p.valuePrevious)
+        const yoy = Number.isFinite(cur) && Number.isFinite(prev) && prev !== 0 ? ((cur - prev) / prev) * 100 : null
+        return { ...p, value: p.valueCurrent, yoyChange: yoy }
+      })
+      trendMeta.value = { title: row.itemName, sub: TAB_LABELS[tableType] || tableType, unit: points[0]?.unit }
+    }
+    trendPoints.value = points
+    trendGroup.value = 'quarter'
+    syncTrendChecks()
+    await nextTick()
+    renderTrendChart()
+  } catch (e) {
+    trendError.value = `加载走势数据失败：${e?.message || e}`
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+/** 按当前模式重置勾选（默认全选） */
+function syncTrendChecks() {
+  const checked = {}
+  for (const p of trendGroupPoints.value) checked[p.label] = true
+  trendChecked.value = checked
+}
+
+function setTrendGroup(g) {
+  trendGroup.value = g
+  syncTrendChecks()
+  renderTrendChart()
+}
+
+function checkAllTrend() {
+  for (const k of Object.keys(trendChecked.value)) trendChecked.value[k] = true
+}
+
+function uncheckAllTrend() {
+  for (const k of Object.keys(trendChecked.value)) trendChecked.value[k] = false
+}
+
+function closeTrend() {
+  trendOpen.value = false
+  trendChartInst?.dispose()
+  trendChartInst = null
+  trendPoints.value = []
+  trendMeta.value = null
+}
+
+function buildTrendOption() {
+  const points = trendGroupPoints.value
+  const labels = points.map((p) => p.label)
+  // 未勾选的期置 null：柱与线留空（x 轴位置保留）
+  const valueData = points.map((p) => (trendChecked.value[p.label] ? numOrNull(p.value) : null))
+  const yoyData = points.map((p) => (trendChecked.value[p.label] ? numOrNull(p.yoyChange) : null))
+  // 一次最多显示 10 个柱/折线点，超出的通过底部滑条 + 图表内拖拽横向浏览
+  const MAX_VISIBLE = 10
+  const zoomStart = labels.length > MAX_VISIBLE ? labels.length - MAX_VISIBLE : 0
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v) => (v === null || v === undefined ? '-' : fmtAmount(v)),
+    },
+    legend: { data: ['本期值', '同比%'], bottom: 0 },
+    grid: { left: 70, right: 90, top: 36, bottom: 78 },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: { rotate: labels.length > 10 ? 40 : 25, interval: 0 },
+    },
+    dataZoom: [
+      // 底部滑条：拖动浏览超出 10 个的历史数据
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        startValue: zoomStart,
+        endValue: labels.length - 1,
+        height: 16,
+        bottom: 40,
+      },
+      // 图表内：鼠标滚轮 / 直接横向拖拽
+      { type: 'inside', xAxisIndex: 0, disabled: false },
+    ],
+    yAxis: [
+      { type: 'value', name: '本期值' },
+      { type: 'value', name: '同比%', axisLabel: { formatter: '{value}%' } },
+    ],
+    series: [
+      {
+        name: '本期值',
+        type: 'bar', // 数据柱形图（蓝色）
+        color: '#409eff',
+        barWidth: 26,
+        data: valueData,
+        label: { show: true, position: 'top', formatter: (p) => (p.value === null ? '' : fmtAmount(p.value)) },
+      },
+      {
+        name: '同比%',
+        type: 'line', // 折线图：同比百分比
+        yAxisIndex: 1,
+        color: '#f56c6c',
+        smooth: true,
+        connectNulls: false,
+        data: yoyData,
+        label: { show: true, formatter: (p) => (p.value === null ? '' : `${fmtAmount(p.value)}%`) },
+      },
+    ],
+  }
+}
+
+function renderTrendChart() {
+  const el = trendChartEl.value
+  if (!el) return
+  trendChartInst?.dispose()
+  trendChartInst = null
+  const points = trendGroupPoints.value
+  if (!points.length) {
+    trendChartInst?.dispose()
+    trendChartInst = null
+    return
+  }
+  trendChartInst = echarts.init(el, isDark.value ? 'dark' : null)
+  trendChartInst.setOption(buildTrendOption(), true)
+  trendChartInst.resize()
+}
+
+// 勾选状态变化 → 即时刷新图表（勾选按钮）
+watch(trendChecked, () => {
+  if (trendOpen.value && trendChartInst) trendChartInst.setOption(buildTrendOption(), true)
+}, { deep: true })
+
+// 切换深浅色 → 图表换肤
+watch(isDark, () => {
+  if (trendOpen.value) nextTick(renderTrendChart)
+})
 
 onMounted(loadCompanies)
 </script>
@@ -426,7 +647,16 @@ onMounted(loadCompanies)
                 width="140"
               />
               <el-table-column :label="readerIsIndicator ? '本期值' : '本期金额'" align="right" min-width="180">
-                <template #default="{ row }">{{ fmtAmount(row.valueCurrent) }}</template>
+                <template #default="{ row }">
+                  <button
+                    type="button"
+                    class="indicatorValBtn"
+                    :title="readerIsIndicator ? '点击查看该指标历史走势' : '点击查看该科目历史走势'"
+                    @click.stop="openTrend(row)"
+                  >
+                    {{ fmtAmount(row.valueCurrent) }} 📈
+                  </button>
+                </template>
               </el-table-column>
               <el-table-column label="上期" align="right" min-width="180">
                 <template #default="{ row }">{{ fmtAmount(row.valuePrevious) }}</template>
@@ -438,6 +668,63 @@ onMounted(loadCompanies)
                 </template>
               </el-table-column>
             </el-table>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </teleport>
+
+  <!-- 指标走势图：阅读器财务指标 tab 点击“本期值”弹出 -->
+  <teleport to="body">
+    <transition name="readerFade">
+      <div v-if="trendOpen" class="readerOverlay trendOverlay" @click.self="closeTrend">
+        <div class="readerPanel trendPanel">
+          <div class="readerHead">
+            <div class="readerTitleBox">
+              <div class="readerTitle">📈 {{ trendMeta?.title || '走势图' }}</div>
+              <div class="readerSub">
+                {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
+                <span class="readerStat">
+                  {{ trendGroup === 'year' ? '年度展示' : '季度展示' }} · 共 {{ trendGroupPoints.length }} 期 · 取消勾选图形隐藏对应数据
+                </span>
+              </div>
+            </div>
+            <div class="trendModeGroup">
+              <button
+                type="button"
+                class="readerTabBtn"
+                :class="{ active: trendGroup === 'quarter' }"
+                @click="setTrendGroup('quarter')"
+              >季度展示</button>
+              <button
+                type="button"
+                class="readerTabBtn"
+                :class="{ active: trendGroup === 'year' }"
+                @click="setTrendGroup('year')"
+              >年度展示</button>
+            </div>
+            <div class="trendModeGroup">
+              <button type="button" class="readerTabBtn" @click="checkAllTrend">全选</button>
+              <button type="button" class="readerTabBtn" @click="uncheckAllTrend">清空</button>
+            </div>
+            <button type="button" class="readerClose" @click="closeTrend">✕ 关闭</button>
+          </div>
+
+          <div class="readerBody trendBody">
+            <el-alert
+              v-if="trendError"
+              :title="trendError"
+              type="error"
+              show-icon
+              :closable="false"
+              class="trendErr"
+            />
+            <div v-loading="trendLoading" ref="trendChartEl" class="trendChart"></div>
+            <div class="trendChecks">
+              <label v-for="p in trendGroupPoints" :key="p.label" class="trendCheckItem">
+                <el-checkbox v-model="trendChecked[p.label]" size="small">{{ p.label }}</el-checkbox>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -573,6 +860,43 @@ onMounted(loadCompanies)
   padding: 0 10px 10px;
   overflow: hidden;
 }
+/* —— 指标走势图浮层（点击财务指标“本期值”弹出）—— */
+.indicatorValBtn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--primary-color, #409eff);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.indicatorValBtn:hover { background: rgba(64, 158, 255, 0.12); }
+.trendOverlay { z-index: 5000; } /* 高于阅读器(3000)与下拉面板(4000) */
+.trendPanel { width: 94vw; height: 96vh; }
+.trendBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  min-height: 0;
+}
+.trendErr { flex-shrink: 0; }
+.trendChart { flex: 1; min-height: 0; width: 100%; }
+.trendChecks {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 96px;
+  overflow: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 8px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.trendCheckItem { white-space: nowrap; font-size: 12px; }
 /* 浮层内表格半透明，保持"可透视"观感 */
 .readerBody :deep(.el-table),
 .readerBody :deep(.el-table__inner-wrapper),
@@ -643,5 +967,11 @@ html.dark .readerBody .el-table td.el-table__cell {
 }
 html.dark .readerBody .el-table__body tr:hover > td.el-table__cell {
   background-color: rgba(64, 158, 255, 0.16);
+}
+
+/* 趋势图浮层：勾选区深色适配 */
+html.dark .trendChecks {
+  border-top-color: rgba(255, 255, 255, 0.12);
+  background: rgba(46, 50, 56, 0.5);
 }
 </style>
