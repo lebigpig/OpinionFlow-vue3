@@ -10,6 +10,8 @@ import {
   fetchCompanyReportDetail,
   fetchCompanyIndicatorHistory,
   fetchCompanyStatementHistory,
+  fetchCompanyPeerCompare,
+  fetchCompanyStatementPeerCompare,
 } from '@/lib/api.js'
 
 const keyword = ref('')
@@ -274,6 +276,14 @@ const trendChartEl = ref(null)
 const trendChecked = ref({}) // { label: true/false } —— 勾选 = 图表中显示该期数据
 let trendChartInst = null
 
+// 对比模式：点击走势图中的蓝色柱子 → 切换为「同行业公司横向对比」（无折线图 + Top5 排名）
+const trendMode = ref('single') // 'single' 单企业走势 | 'peer' 同行业对比
+const peerLoading = ref(false)
+const peerError = ref('')
+const peerMeta = ref(null) // { indicatorCode, indicatorName, industry, fiscalYear, fiscalPeriod }
+const peerPoints = ref([]) // 同行业各公司数据（后端已按指标值降序）
+const peerChecked = ref({}) // { companyKey: true/false } —— 勾选 = 对比图中显示该公司
+
 /** 期间排序权重：Q1 < Q2 < H1 < Q3 < Q4 < FY */
 function periodRank(p) {
   switch (String(p ?? '').toUpperCase()) {
@@ -323,6 +333,11 @@ async function openTrend(row) {
   trendOpen.value = true
   trendLoading.value = true
   trendError.value = ''
+  // 每次打开都回到「单企业分析」模式
+  trendMode.value = 'single'
+  peerPoints.value = []
+  peerMeta.value = null
+  peerError.value = ''
   try {
     let points = []
     if (tab === 'indicators') {
@@ -336,7 +351,7 @@ async function openTrend(row) {
         valuePrevious: p.valuePrevious,
         yoyChange: p.yoyChange,
       }))
-      trendMeta.value = { title: res?.indicatorName || row.itemName || code, sub: code, unit: res?.unit }
+      trendMeta.value = { kind: 'indicator', title: res?.indicatorName || row.itemName || code, sub: code, code, unit: res?.unit }
     } else {
       const tableType = INCOME_TAB_TYPES.includes(tab) ? tab : 'income'
       const res = await fetchCompanyStatementHistory(companyId, tableType, row.itemName)
@@ -346,7 +361,14 @@ async function openTrend(row) {
         const yoy = Number.isFinite(cur) && Number.isFinite(prev) && prev !== 0 ? ((cur - prev) / prev) * 100 : null
         return { ...p, value: p.valueCurrent, yoyChange: yoy }
       })
-      trendMeta.value = { title: row.itemName, sub: TAB_LABELS[tableType] || tableType, unit: points[0]?.unit }
+      trendMeta.value = {
+        kind: 'statement',
+        title: row.itemName,
+        sub: TAB_LABELS[tableType] || tableType,
+        tableType,
+        itemName: row.itemName,
+        unit: points[0]?.unit,
+      }
     }
     trendPoints.value = points
     trendGroup.value = 'quarter'
@@ -374,10 +396,18 @@ function setTrendGroup(g) {
 }
 
 function checkAllTrend() {
+  if (trendMode.value === 'peer') {
+    for (const k of Object.keys(peerChecked.value)) peerChecked.value[k] = true
+    return
+  }
   for (const k of Object.keys(trendChecked.value)) trendChecked.value[k] = true
 }
 
 function uncheckAllTrend() {
+  if (trendMode.value === 'peer') {
+    for (const k of Object.keys(peerChecked.value)) peerChecked.value[k] = false
+    return
+  }
   for (const k of Object.keys(trendChecked.value)) trendChecked.value[k] = false
 }
 
@@ -385,8 +415,288 @@ function closeTrend() {
   trendOpen.value = false
   trendChartInst?.dispose()
   trendChartInst = null
+  disposePeerPie()
+  closePeerPieZoom()
   trendPoints.value = []
   trendMeta.value = null
+  // 关闭时重置对比模式
+  trendMode.value = 'single'
+  peerPoints.value = []
+  peerMeta.value = null
+  peerError.value = ''
+}
+
+// ===== 同行业对比（点击走势图中的蓝色柱子触发）=====
+
+/** 公司唯一键（用于对比图的公司勾选） */
+function peerKey(c) {
+  return String(c?.companyId ?? c?.companyCode ?? c?.shortName ?? '')
+}
+
+/** 前 5 名（后端已按指标值降序返回） */
+const peerTop5 = computed(() => peerPoints.value.slice(0, 5))
+
+/**
+ * 扇形图配色：按公司总数均匀分布色相（hsl），保证同行业每家公司颜色都不同；
+ * 排名小窗的圆标与扇形图扇区使用同一取色规则，颜色一一对应。
+ */
+function peerColorAt(i, total) {
+  const n = Math.max(total || 0, 1)
+  const hue = Math.round((i * 360) / n)
+  return `hsl(${hue}, 62%, 52%)`
+}
+
+/** 「同行业各公司占比」扇形图数据：涵盖该行业全部公司（剔除空值与负值） */
+const peerPieData = computed(() => {
+  const total = peerPoints.value.length
+  return peerPoints.value
+    .map((c, i) => ({
+      name: c.shortName || c.companyName || c.companyCode || '',
+      value: numOrNull(c.value),
+      color: peerColorAt(i, total), // 先按原名次取色（保证与排名一致），再过滤
+    }))
+    .filter((d) => d.value !== null && d.value > 0)
+})
+
+const peerPieEl = ref(null)
+let peerPieInst = null
+
+/** 渲染「同行业各公司占比」扇形图（每家公司不同颜色 + 百分比标签） */
+function renderPeerPie() {
+  const el = peerPieEl.value
+  if (!el) return
+  peerPieInst?.dispose()
+  peerPieInst = null
+  const data = peerPieData.value
+  if (data.length < 2) return
+  peerPieInst = echarts.init(el, isDark.value ? 'dark' : null)
+  peerPieInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      // 挂到 body，避免被小窗 overflow 裁剪，悬浮说明始终在最上层
+      appendToBody: true,
+      formatter: (p) => `${p.name}<br/>${fmtAmount(p.value)}（${p.percent}%）`,
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['28%', '62%'],
+        center: ['50%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.45)' },
+        // 公司较多时只标注占比 ≥2% 的扇区，避免标签糊在一起（tooltip 可看全部）
+        label: {
+          show: true,
+          fontSize: 9,
+          formatter: (p) => (p.percent >= 2 ? `${p.percent}%` : ''),
+        },
+        labelLine: { length: 4, length2: 4 },
+        data: data.map((d) => ({
+          name: d.name,
+          value: d.value,
+          itemStyle: { color: d.color },
+        })),
+      },
+    ],
+  })
+  peerPieInst.resize()
+}
+
+function disposePeerPie() {
+  peerPieInst?.dispose()
+  peerPieInst = null
+}
+
+// ===== 扇形图放大查看（基本占满屏幕，背景半透明） =====
+const peerPieZoomOpen = ref(false)
+const peerPieZoomEl = ref(null)
+let peerPieZoomInst = null
+
+/** 打开放大视图 */
+async function openPeerPieZoom() {
+  peerPieZoomOpen.value = true
+  await nextTick()
+  renderPeerPieZoom()
+}
+
+function closePeerPieZoom() {
+  peerPieZoomOpen.value = false
+  peerPieZoomInst?.dispose()
+  peerPieZoomInst = null
+}
+
+/** 放大后的扇形图：更大半径 + 图例 + 完整"公司名 + 百分比"标签 */
+function renderPeerPieZoom() {
+  const el = peerPieZoomEl.value
+  if (!el) return
+  peerPieZoomInst?.dispose()
+  peerPieZoomInst = null
+  const data = peerPieData.value
+  if (!data.length) return
+  peerPieZoomInst = echarts.init(el, isDark.value ? 'dark' : null)
+  peerPieZoomInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      // 关键：挂到 body 上，保证 hover 时的"企业名 + 占比"说明浮层永远在最上层
+      appendToBody: true,
+      formatter: (p) => `${p.name}<br/>${fmtAmount(p.value)}（${p.percent}%）`,
+    },
+    legend: {
+      type: 'scroll',
+      orient: 'vertical',
+      right: 24,
+      top: 'middle',
+      itemWidth: 12,
+      itemHeight: 12,
+      textStyle: { fontSize: 12 },
+      data: data.map((d) => d.name),
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['26%', '62%'],
+        center: ['40%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.45)' },
+        label: {
+          show: true,
+          fontSize: 12,
+          formatter: (p) => `${p.name}\n${p.percent}%`,
+        },
+        labelLine: { length: 10, length2: 10 },
+        data: data.map((d) => ({
+          name: d.name,
+          value: d.value,
+          itemStyle: { color: d.color },
+        })),
+      },
+    ],
+  })
+  peerPieZoomInst.resize()
+}
+
+/** 重置对比勾选（默认全部选中） */
+function syncPeerChecks() {
+  const checked = {}
+  for (const c of peerPoints.value) checked[peerKey(c)] = true
+  peerChecked.value = checked
+}
+
+/** 点击蓝柱 → 载入同行业对比数据并切换到对比视图（财务指标 / 三张报表科目都支持） */
+async function openPeerCompare(p) {
+  const meta = trendMeta.value
+  const companyId = currentCompany.value?.id
+  if (!meta?.kind || !companyId || !p) return
+  const isIndicator = meta.kind === 'indicator'
+  // 行业取当前公司所属行业（该行业同时存在于 Pinia 的行业清单中）
+  const industry = (currentCompany.value?.industry || industryFilter.value || '').trim()
+  trendMode.value = 'peer'
+  peerLoading.value = true
+  peerError.value = ''
+  peerPoints.value = []
+  peerMeta.value = {
+    kind: meta.kind,
+    tableType: meta.tableType,
+    indicatorName: meta.title || '',
+    industry,
+    fiscalYear: p.fiscalYear,
+    fiscalPeriod: p.fiscalPeriod,
+  }
+  try {
+    const opts = { industry, fiscalYear: p.fiscalYear, fiscalPeriod: p.fiscalPeriod }
+    const res = isIndicator
+      ? await fetchCompanyPeerCompare(meta.code, opts)
+      : await fetchCompanyStatementPeerCompare(meta.tableType, meta.itemName, opts)
+    // 指标后端字段为 indicatorValue，三张报表为 valueCurrent —— 统一成 value 供图表与排名复用
+    peerPoints.value = (res?.list || []).map((c) => ({
+      companyId: c.companyId,
+      companyCode: c.companyCode,
+      companyName: c.companyName,
+      shortName: c.shortName,
+      industry: c.industry,
+      value: isIndicator ? c.indicatorValue : c.valueCurrent,
+      valuePrevious: c.valuePrevious,
+      yoyChange: c.yoyChange,
+    }))
+    syncPeerChecks()
+  } catch (e) {
+    peerError.value = `加载同行业对比失败：${e?.message || e}`
+  } finally {
+    peerLoading.value = false
+    await nextTick()
+    renderTrendChart()
+    renderPeerPie()
+  }
+}
+
+/** 返回按钮：切回单企业分析 */
+function backToSingle() {
+  trendMode.value = 'single'
+  peerPoints.value = []
+  peerMeta.value = null
+  peerError.value = ''
+  disposePeerPie()
+  closePeerPieZoom()
+  nextTick(renderTrendChart)
+}
+
+/** 图表点击回调（仅单企业模式下点击蓝柱有效；指标与三张报表科目都支持） */
+function onTrendChartClick(params) {
+  if (trendMode.value !== 'single') return
+  if (!trendMeta.value?.kind) return
+  if (params?.componentType !== 'series' || params?.seriesType !== 'bar') return
+  const point = trendGroupPoints.value[params.dataIndex]
+  if (point) openPeerCompare(point)
+}
+
+/** 同行业对比柱状图：只保留蓝色柱 + 数值（不要折线图） */
+function buildPeerOption() {
+  const list = peerPoints.value
+  const currentId = currentCompany.value?.id
+  const labels = list.map((c) => c.shortName || c.companyName || c.companyCode || '')
+  const data = list.map((c) => ({
+    // 未勾选的公司置 null（隐藏，但保留 x 轴位置）
+    value: peerChecked.value[peerKey(c)] !== false ? numOrNull(c.value) : null,
+    // 当前公司用橙色高亮
+    itemStyle: { color: c.companyId === currentId ? '#ff9e00' : '#409eff' },
+  }))
+  const MAX_VISIBLE = 10
+  const endValue = Math.min(MAX_VISIBLE - 1, Math.max(labels.length - 1, 0))
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v) => (v === null || v === undefined ? '-' : fmtAmount(v)),
+    },
+    legend: { data: ['本期值'], bottom: 0 },
+    grid: { left: 70, right: 30, top: 30, bottom: 78 },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: { rotate: labels.length > 6 ? 45 : 0, interval: 0 },
+    },
+    dataZoom: [
+      { type: 'slider', xAxisIndex: 0, startValue: 0, endValue, height: 16, bottom: 40 },
+      { type: 'inside', xAxisIndex: 0 },
+    ],
+    yAxis: { type: 'value', name: '本期值' },
+    series: [
+      {
+        name: '本期值',
+        type: 'bar',
+        barWidth: 26,
+        data,
+        label: {
+          show: true,
+          position: 'top',
+          formatter: (p) => (p.value === null ? '' : fmtAmount(p.value)),
+        },
+      },
+    ],
+  }
 }
 
 function buildTrendOption() {
@@ -432,9 +742,10 @@ function buildTrendOption() {
     series: [
       {
         name: '本期值',
-        type: 'bar', // 数据柱形图（蓝色）
+        type: 'bar', // 数据柱形图（蓝色）——可点击对比同行业
         color: '#409eff',
         barWidth: 26,
+        cursor: 'pointer',
         data: valueData,
         label: { show: true, position: 'top', formatter: (p) => (p.value === null ? '' : fmtAmount(p.value)) },
       },
@@ -457,25 +768,49 @@ function renderTrendChart() {
   if (!el) return
   trendChartInst?.dispose()
   trendChartInst = null
-  const points = trendGroupPoints.value
-  if (!points.length) {
-    trendChartInst?.dispose()
-    trendChartInst = null
+
+  // 对比模式：同行业公司横向对比（只有蓝色柱状图，无折线）
+  if (trendMode.value === 'peer') {
+    if (!peerPoints.value.length) return
+    trendChartInst = echarts.init(el, isDark.value ? 'dark' : null)
+    trendChartInst.setOption(buildPeerOption(), true)
+    trendChartInst.resize()
     return
   }
+
+  // 单企业模式：本期值柱状图 + 同比折线
+  const points = trendGroupPoints.value
+  if (!points.length) return
   trendChartInst = echarts.init(el, isDark.value ? 'dark' : null)
   trendChartInst.setOption(buildTrendOption(), true)
+  // 点击蓝色柱子 → 切换为同行业对比
+  trendChartInst.on('click', onTrendChartClick)
   trendChartInst.resize()
 }
 
 // 勾选状态变化 → 即时刷新图表（勾选按钮）
 watch(trendChecked, () => {
-  if (trendOpen.value && trendChartInst) trendChartInst.setOption(buildTrendOption(), true)
+  if (trendOpen.value && trendMode.value === 'single' && trendChartInst) {
+    trendChartInst.setOption(buildTrendOption(), true)
+  }
+}, { deep: true })
+
+// 对比模式的公司勾选 → 即时刷新对比图
+watch(peerChecked, () => {
+  if (trendOpen.value && trendMode.value === 'peer' && trendChartInst) {
+    trendChartInst.setOption(buildPeerOption(), true)
+  }
 }, { deep: true })
 
 // 切换深浅色 → 图表换肤
 watch(isDark, () => {
-  if (trendOpen.value) nextTick(renderTrendChart)
+  if (trendOpen.value) {
+    nextTick(() => {
+      renderTrendChart()
+      renderPeerPie()
+      if (peerPieZoomOpen.value) renderPeerPieZoom()
+    })
+  }
 })
 
 onMounted(() => {
@@ -758,15 +1093,35 @@ onMounted(() => {
         <div class="readerPanel trendPanel">
           <div class="readerHead">
             <div class="readerTitleBox">
-              <div class="readerTitle">📈 {{ trendMeta?.title || '走势图' }}</div>
+              <div class="readerTitle">
+                📈 {{ trendMeta?.title || '走势图' }}
+                <span v-if="trendMode === 'peer'" class="peerBadge">同行业对比</span>
+              </div>
               <div class="readerSub">
-                {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
-                <span class="readerStat">
-                  {{ trendGroup === 'year' ? '年度展示' : '季度展示' }} · 共 {{ trendGroupPoints.length }} 期 · 取消勾选图形隐藏对应数据
-                </span>
+                <template v-if="trendMode === 'peer'">
+                  {{ peerMeta?.industry || '全部行业' }} · {{ peerMeta?.fiscalYear }}{{ peerMeta?.fiscalPeriod }}
+                  · 共 {{ peerPoints.length }} 家公司（橙色为本公司）
+                </template>
+                <template v-else>
+                  {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
+                  <span class="readerStat">
+                    {{ trendGroup === 'year' ? '年度展示' : '季度展示' }} · 共 {{ trendGroupPoints.length }} 期
+                    <template v-if="trendMeta?.kind"> · 点击蓝柱可对比同行业</template>
+                  </span>
+                </template>
               </div>
             </div>
-            <div class="trendModeGroup">
+
+            <!-- 对比模式：返回单企业分析 -->
+            <button
+              v-if="trendMode === 'peer'"
+              type="button"
+              class="readerTabBtn backBtn"
+              @click="backToSingle"
+            >← 返回单企业分析</button>
+
+            <!-- 单企业模式：季度 / 年度切换 -->
+            <div v-else class="trendModeGroup">
               <button
                 type="button"
                 class="readerTabBtn"
@@ -780,6 +1135,7 @@ onMounted(() => {
                 @click="setTrendGroup('year')"
               >年度展示</button>
             </div>
+
             <div class="trendModeGroup">
               <button type="button" class="readerTabBtn" @click="checkAllTrend">全选</button>
               <button type="button" class="readerTabBtn" @click="uncheckAllTrend">清空</button>
@@ -796,13 +1152,88 @@ onMounted(() => {
               :closable="false"
               class="trendErr"
             />
-            <div v-loading="trendLoading" ref="trendChartEl" class="trendChart"></div>
+            <el-alert
+              v-if="peerError"
+              :title="peerError"
+              type="error"
+              show-icon
+              :closable="false"
+              class="trendErr"
+            />
+            <div class="trendMain">
+              <div
+                v-loading="trendMode === 'peer' ? peerLoading : trendLoading"
+                ref="trendChartEl"
+                class="trendChart"
+              ></div>
+              <!-- 对比模式：前 5 名排名小窗 -->
+              <div v-if="trendMode === 'peer'" class="peerRank">
+                <div class="peerRankTitle">🏆 前 5 名</div>
+                <div
+                  v-for="(c, i) in peerTop5"
+                  :key="peerKey(c)"
+                  class="peerRankRow"
+                  :class="{ current: c.companyId === currentCompany?.id }"
+                >
+                  <span class="peerRankNo" :style="{ background: peerColorAt(i, peerPoints.length) }">{{ i + 1 }}</span>
+                  <span class="peerRankName" :title="c.companyName || ''">
+                    {{ c.shortName || c.companyName || c.companyCode }}
+                  </span>
+                  <span class="peerRankVal">{{ fmtAmount(c.value) }}</span>
+                </div>
+                <div v-if="!peerTop5.length && !peerLoading" class="peerRankEmpty">暂无数据</div>
+
+                <!-- 同行业全部公司的数值占比扇形图（颜色与排名圆标对应） -->
+                <template v-if="peerPieData.length >= 2">
+                  <div class="peerPieTitle">
+                    📊 全行业占比（{{ peerPieData.length }} 家）
+                    <button
+                      type="button"
+                      class="peerPieZoomBtn"
+                      title="放大查看扇形图"
+                      @click="openPeerPieZoom"
+                    >⛶ 放大</button>
+                  </div>
+                  <div ref="peerPieEl" class="peerPie"></div>
+                </template>
+              </div>
+            </div>
             <div class="trendChecks">
-              <label v-for="p in trendGroupPoints" :key="p.label" class="trendCheckItem">
-                <el-checkbox v-model="trendChecked[p.label]" size="small">{{ p.label }}</el-checkbox>
-              </label>
+              <template v-if="trendMode === 'peer'">
+                <label v-for="c in peerPoints" :key="peerKey(c)" class="trendCheckItem">
+                  <el-checkbox v-model="peerChecked[peerKey(c)]" size="small">
+                    {{ c.shortName || c.companyCode }}
+                  </el-checkbox>
+                </label>
+              </template>
+              <template v-else>
+                <label v-for="p in trendGroupPoints" :key="p.label" class="trendCheckItem">
+                  <el-checkbox v-model="trendChecked[p.label]" size="small">{{ p.label }}</el-checkbox>
+                </label>
+              </template>
             </div>
           </div>
+        </div>
+      </div>
+    </transition>
+  </teleport>
+
+  <!-- 扇形图放大查看：基本占满屏幕、背景半透明；鼠标悬浮的说明浮层始终在最上层 -->
+  <teleport to="body">
+    <transition name="readerFade">
+      <div v-if="peerPieZoomOpen" class="peerPieZoomOverlay" @click.self="closePeerPieZoom">
+        <div class="peerPieZoomPanel">
+          <div class="peerPieZoomHead">
+            <div class="peerPieZoomTitle">
+              📊 全行业占比 · {{ peerMeta?.indicatorName || trendMeta?.title || '' }}
+              <span class="peerPieZoomSub">
+                {{ peerMeta?.industry || '全部行业' }} · {{ peerMeta?.fiscalYear }}{{ peerMeta?.fiscalPeriod }}
+                · {{ peerPieData.length }} 家
+              </span>
+            </div>
+            <button type="button" class="readerClose" @click="closePeerPieZoom">✕ 关闭</button>
+          </div>
+          <div ref="peerPieZoomEl" class="peerPieZoomChart"></div>
         </div>
       </div>
     </transition>
@@ -961,7 +1392,125 @@ onMounted(() => {
   min-height: 0;
 }
 .trendErr { flex-shrink: 0; }
+.trendMain {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
 .trendChart { flex: 1; min-height: 0; width: 100%; }
+
+/* —— 对比模式：前 5 名排名小窗 —— */
+.peerRank {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  overflow: auto;
+}
+.peerRankTitle { font-weight: 800; font-size: 13px; margin-bottom: 2px; }
+.peerRankRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: rgba(64, 158, 255, 0.06);
+}
+.peerRankRow.current {
+  background: rgba(255, 158, 0, 0.18);
+  font-weight: 700;
+}
+.peerRankNo {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--primary-color, #409eff);
+  color: #fff;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.peerRankRow.current .peerRankNo { box-shadow: 0 0 0 2px rgba(255, 158, 0, 0.75); }
+/* 全行业占比扇形图 */
+.peerPieTitle { font-weight: 800; font-size: 12px; margin-top: 10px; }
+.peerPie { width: 100%; height: 230px; flex-shrink: 0; }
+.peerPieZoomBtn {
+  margin-left: 8px;
+  border: 1px solid var(--border-color, #dcdfe6);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--primary-color, #409eff);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.peerPieZoomBtn:hover { background: rgba(64, 158, 255, 0.12); }
+
+/* —— 扇形图放大浮层：基本占满屏幕，背景半透明 —— */
+.peerPieZoomOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 7000; /* 高于走势图浮层(5000)，保证在最上层 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3vh 3vw;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.peerPieZoomPanel {
+  width: 96vw;
+  height: 94vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+.peerPieZoomHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.peerPieZoomTitle { font-weight: 800; font-size: 15px; }
+.peerPieZoomSub { font-size: 12px; color: #606266; font-weight: 400; margin-left: 8px; }
+.peerPieZoomChart { flex: 1; min-height: 0; width: 100%; padding: 6px; }
+.peerRankName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peerRankVal { font-variant-numeric: tabular-nums; }
+.peerRankEmpty { font-size: 12px; color: var(--text-muted, #909399); }
+.peerBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ff9e00;
+  vertical-align: middle;
+}
+.backBtn { font-weight: 700; }
 .trendChecks {
   flex-shrink: 0;
   display: flex;
@@ -1050,5 +1599,30 @@ html.dark .readerBody .el-table__body tr:hover > td.el-table__cell {
 html.dark .trendChecks {
   border-top-color: rgba(255, 255, 255, 0.12);
   background: rgba(46, 50, 56, 0.5);
+}
+
+/* 对比模式：排名小窗深色适配 */
+html.dark .peerRank {
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+html.dark .peerRankRow {
+  background: rgba(64, 158, 255, 0.12);
+}
+html.dark .peerRankRow.current {
+  background: rgba(255, 158, 0, 0.22);
+}
+
+/* 扇形图放大浮层：深色适配 */
+html.dark .peerPieZoomPanel {
+  background: rgba(30, 34, 40, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+html.dark .peerPieZoomHead {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+html.dark .peerPieZoomSub { color: #b6bdc9; }
+html.dark .peerPieZoomBtn {
+  background: rgba(58, 64, 74, 0.6);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 </style>

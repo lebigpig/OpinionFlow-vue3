@@ -184,6 +184,33 @@ export function fetchCompanyIndicatorHistory(companyId, indicatorCode) {
   return request(`/api/company/${companyId}/indicators/${encodeURIComponent(indicatorCode)}/history`)
 }
 
+/**
+ * 同行业公司横向对比：同一指标 + 同一财年/季度下同行业所有公司的指标值（按值降序）
+ * @param {string} indicatorCode 指标编码
+ * @param {{industry?: string, fiscalYear: number|string, fiscalPeriod: string}} opts
+ */
+export function fetchCompanyPeerCompare(indicatorCode, { industry, fiscalYear, fiscalPeriod } = {}) {
+  const y = encodeURIComponent(fiscalYear ?? '')
+  const p = encodeURIComponent(fiscalPeriod ?? '')
+  return request(
+    `/api/company/indicators/${encodeURIComponent(indicatorCode)}/peer-compare?fiscalYear=${y}&fiscalPeriod=${p}${qs({ industry })}`,
+  )
+}
+
+/**
+ * 同行业「某一科目」横向对比（利润表 / 资产负债表 / 现金流量表）
+ * @param {'income'|'balance'|'cashflow'} tableType
+ * @param {string} itemName 科目名称
+ * @param {{industry?: string, fiscalYear: number|string, fiscalPeriod: string}} opts
+ */
+export function fetchCompanyStatementPeerCompare(tableType, itemName, { industry, fiscalYear, fiscalPeriod } = {}) {
+  const y = encodeURIComponent(fiscalYear ?? '')
+  const p = encodeURIComponent(fiscalPeriod ?? '')
+  return request(
+    `/api/company/statements/${encodeURIComponent(tableType)}/peer-compare?itemName=${encodeURIComponent(itemName ?? '')}&fiscalYear=${y}&fiscalPeriod=${p}${qs({ industry })}`,
+  )
+}
+
 /** 利润表/资产负债表/现金流量表某一科目的历史走势（tableType: income | balance | cashflow） */
 export function fetchCompanyStatementHistory(companyId, tableType, itemName) {
   return request(
