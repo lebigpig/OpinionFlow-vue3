@@ -272,6 +272,12 @@ const trendLoading = ref(false)
 const trendError = ref('')
 const trendMeta = ref(null) // { indicatorName, indicatorCode, unit }
 const trendPoints = ref([]) // 后端返回的全部历史点（财年/期间升序）
+const trendLineMode = ref('yoy') // 折线口径：'yoy' 同比% | 'diff' 直接差值（本期值-上期值，扇形图明细走差线）
+// 数值口径：'amount' 金额（默认，表格「📈 走势」）| 'ratio' 占比%；
+// 从构成占比扇形图点进来看走势时，柱/线/同行业对比全部显示「该明细占所属合计项的比例（%）」而非金额
+const trendValueMode = ref('amount')
+// 占比分母科目名（扇形图的合计项名称）；ratio 模式下用于取分母科目自身的走势 / 同行业数据
+const trendRatioBase = ref('')
 const trendGroup = ref('quarter') // 'quarter' | 'year'
 const trendChartEl = ref(null)
 const trendChecked = ref({}) // { label: true/false } —— 勾选 = 图表中显示该期数据
@@ -323,15 +329,54 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null
 }
 
+/** 期间唯一键（财年 + 期间 + 报告类型）：用于把「明细科目」与「分母科目（合计项）」的各期数据一一对齐 */
+function periodKeyOf(p) {
+  return `${p?.fiscalYear ?? ''}|${p?.fiscalPeriod ?? ''}|${p?.reportType ?? ''}`
+}
+
+/**
+ * 把「明细科目」的各期数值换算成占「分母科目（扇形图合计项）」的比例（%）：
+ *   本期占比 = 明细本期值 / 分母本期值 × 100
+ *   差值     = 本期占比 - 上期占比（百分点）
+ * 分母缺失或为 0 的期按 null 处理（图表留空）。原金额保留在 amount 上，图表只展示占比。
+ */
+function toRatioPoints(points, basePoints) {
+  const baseMap = new Map()
+  for (const b of basePoints || []) {
+    const k = periodKeyOf(b)
+    if (!baseMap.has(k)) baseMap.set(k, b)
+  }
+  return (points || []).map((p) => {
+    const b = baseMap.get(periodKeyOf(p))
+    const cur = numOrNull(p.valueCurrent)
+    const prev = numOrNull(p.valuePrevious)
+    const bCur = numOrNull(b?.valueCurrent)
+    const bPrev = numOrNull(b?.valuePrevious)
+    const ratioCur = cur !== null && bCur !== null && bCur !== 0 ? (cur / bCur) * 100 : null
+    const ratioPrev = prev !== null && bPrev !== null && bPrev !== 0 ? (prev / bPrev) * 100 : null
+    return {
+      ...p,
+      amount: cur,
+      value: ratioCur,
+      diff: ratioCur !== null && ratioPrev !== null ? ratioCur - ratioPrev : null,
+    }
+  })
+}
+
 const INCOME_TAB_TYPES = ['income', 'balance', 'cashflow']
 const TAB_LABELS = { income: '利润表', balance: '资产负债表', cashflow: '现金流量表', indicators: '财务指标' }
 
-/** 打开科目/指标走势图：财务指标按 indicatorCode，利润表/资产负债表/现金流量表按科目名称 */
-async function openTrend(row) {
+/** 打开科目/指标走势图：财务指标按 indicatorCode，利润表/资产负债表/现金流量表按科目名称。
+ *  opts.lineMode: 'yoy'（默认，同比%折线）| 'diff'（直接差值折线，用于扇形图明细条目） */
+async function openTrend(row, opts = {}) {
   const companyId = currentCompany.value?.id
   if (!companyId || !row) return
   const tab = readerTab.value
   trendOpen.value = true
+  trendLineMode.value = opts.lineMode || 'yoy'
+  // opts.ratioBase 有值 = 从扇形图点进来的「占比模式」：柱/线/同行业对比都展示占比%而非金额
+  trendValueMode.value = opts.ratioBase ? 'ratio' : 'amount'
+  trendRatioBase.value = opts.ratioBase || ''
   trendLoading.value = true
   trendError.value = ''
   // 每次打开都回到「单企业分析」模式
@@ -344,14 +389,19 @@ async function openTrend(row) {
     if (tab === 'indicators') {
       const code = row?.parentItem || row?.indicatorCode
       const res = await fetchCompanyIndicatorHistory(companyId, code)
-      points = (res?.points || []).map((p) => ({
-        fiscalYear: p.fiscalYear,
-        fiscalPeriod: p.fiscalPeriod,
-        reportType: p.reportType,
-        value: p.indicatorValue,
-        valuePrevious: p.valuePrevious,
-        yoyChange: p.yoyChange,
-      }))
+      points = (res?.points || []).map((p) => {
+        const cur = numOrNull(p.indicatorValue)
+        const prev = numOrNull(p.valuePrevious)
+        return {
+          fiscalYear: p.fiscalYear,
+          fiscalPeriod: p.fiscalPeriod,
+          reportType: p.reportType,
+          value: p.indicatorValue,
+          valuePrevious: p.valuePrevious,
+          yoyChange: p.yoyChange,
+          diff: cur !== null && prev !== null ? cur - prev : null,
+        }
+      })
       trendMeta.value = { kind: 'indicator', title: res?.indicatorName || row.itemName || code, sub: code, code, unit: res?.unit }
     } else {
       const tableType = INCOME_TAB_TYPES.includes(tab) ? tab : 'income'
@@ -360,14 +410,21 @@ async function openTrend(row) {
         const cur = Number(p.valueCurrent)
         const prev = Number(p.valuePrevious)
         const yoy = Number.isFinite(cur) && Number.isFinite(prev) && prev !== 0 ? ((cur - prev) / prev) * 100 : null
-        return { ...p, value: p.valueCurrent, yoyChange: yoy }
+        const diff = Number.isFinite(cur) && Number.isFinite(prev) ? cur - prev : null
+        return { ...p, value: p.valueCurrent, yoyChange: yoy, diff }
       })
+      // 占比模式：再取一次分母科目（扇形图合计项）的历史，把各期金额换算成「占合计项的比例%」
+      if (opts.ratioBase && opts.ratioBase !== row.itemName) {
+        const baseRes = await fetchCompanyStatementHistory(companyId, tableType, opts.ratioBase)
+        points = toRatioPoints(points, baseRes?.points || [])
+      }
       trendMeta.value = {
         kind: 'statement',
-        title: row.itemName,
+        title: opts.ratioBase ? `${row.itemName}（占 ${opts.ratioBase}）` : row.itemName,
         sub: TAB_LABELS[tableType] || tableType,
         tableType,
         itemName: row.itemName,
+        ratioBase: opts.ratioBase || '',
         unit: points[0]?.unit,
       }
     }
@@ -425,6 +482,17 @@ function closeTrend() {
   peerPoints.value = []
   peerMeta.value = null
   peerError.value = ''
+  // 若走势图是从构成占比扇形图打开的，关闭后自动回到原扇形图浮层（可继续点其他明细查看走势）
+  const resumeIds = bsPieResumeIds.value
+  bsPieResumeIds.value = null
+  if (resumeIds && resumeIds.length) {
+    const nodes = resumeIds.map((id) => balanceTree.value.byId.get(id)).filter(Boolean)
+    if (nodes.length) {
+      bsPiePath.value = nodes
+      bsPieOpen.value = true
+      nextTick(renderBalancePie)
+    }
+  }
 }
 
 // ===== 同行业对比（点击走势图中的蓝色柱子触发）=====
@@ -447,17 +515,25 @@ function peerColorAt(i, total) {
   return `hsl(${hue}, 62%, 52%)`
 }
 
-/** 「同行业各公司占比」扇形图数据：涵盖该行业全部公司（剔除空值与负值） */
+/** 「同行业各公司占比」扇形图数据：涵盖该行业全部公司（剔除空值与负值）
+ *  占比模式下 peerPoints 的 value 是各公司「占比%」，此处仍按原始金额 amount 统计各公司占全行业该科目金额合计的比例 */
 const peerPieData = computed(() => {
   const total = peerPoints.value.length
   return peerPoints.value
     .map((c, i) => ({
       name: c.shortName || c.companyName || c.companyCode || '',
-      value: numOrNull(c.value),
+      value: numOrNull(c.amount ?? c.value),
       color: peerColorAt(i, total), // 先按原名次取色（保证与排名一致），再过滤
     }))
     .filter((d) => d.value !== null && d.value > 0)
 })
+
+/** 「全行业占比」扇形图 tooltip：占比模式下只显示百分比，不展示财务金额 */
+function peerPieTooltip(p) {
+  return trendValueMode.value === 'ratio'
+    ? `${p.name}<br/>占全行业 ${p.percent}%`
+    : `${p.name}<br/>${fmtAmount(p.value)}（${p.percent}%）`
+}
 
 const peerPieEl = ref(null)
 let peerPieInst = null
@@ -477,7 +553,7 @@ function renderPeerPie() {
       trigger: 'item',
       // 挂到 body，避免被小窗 overflow 裁剪，悬浮说明始终在最上层
       appendToBody: true,
-      formatter: (p) => `${p.name}<br/>${fmtAmount(p.value)}（${p.percent}%）`,
+      formatter: peerPieTooltip,
     },
     series: [
       {
@@ -542,7 +618,7 @@ function renderPeerPieZoom() {
       trigger: 'item',
       // 关键：挂到 body 上，保证 hover 时的"企业名 + 占比"说明浮层永远在最上层
       appendToBody: true,
-      formatter: (p) => `${p.name}<br/>${fmtAmount(p.value)}（${p.percent}%）`,
+      formatter: peerPieTooltip,
     },
     legend: {
       type: 'scroll',
@@ -884,6 +960,7 @@ function hasBalancePie(row) {
 
 // —— 构成占比浮层状态 ——
 const bsPieOpen = ref(false)
+const bsPieResumeIds = ref(null) // 从扇形图打开走势图时暂存路径，关闭走势图后自动回到该扇形图浮层
 const bsPiePath = ref([]) // 当前节点的祖先链（末位为当前项）
 const bsPieChartEl = ref(null)
 let bsPieChartInst = null
@@ -935,6 +1012,20 @@ function closeBalancePie() {
   bsPiePath.value = []
   bsPieChartInst?.dispose()
   bsPieChartInst = null
+}
+
+/** 点击构成占比扇形图里的明细条目（扇区 / 右侧列表行）→ 打开该科目的走势图：
+ *  企业自身往期排列的蓝色本期值柱 + 直接差值折线（样式与阅读器表格的走势图完全一致），
+ *  点击蓝色柱子同样进入同行业公司横向对比。 */
+async function openPieItemTrend(item) {
+  const name = item?.name
+  if (!name) return
+  // 分母 = 当前扇形图的合计项（如「营业总成本」「经营活动现金流入小计」「资产总计」）
+  const ratioBase = bsPieCurrent.value?.name || ''
+  // 记录当前扇形图路径：关闭走势图后自动回到这张构成占比扇形图，方便连续查看多个明细
+  bsPieResumeIds.value = bsPiePath.value.map((n) => n.id)
+  closeBalancePie()
+  await openTrend({ itemName: name }, { lineMode: 'diff', ratioBase })
 }
 
 /** 下钻到某个明细项（该项还有下级时：资产总计 → 流动资产合计 → 货币资金…） */
@@ -993,7 +1084,7 @@ function renderBalancePie() {
       appendToBody: true,
       formatter: (p) => {
         const r = slices[p.dataIndex]
-        return `${r.name}<br/>${fmtAmount(r.value)}（${p.percent}%）${r.drill ? '<br/>点击可继续下钻' : ''}`
+        return `${r.name}<br/>${fmtAmount(r.value)}（${p.percent}%）<br/>点击查看历史走势图`
       },
     },
     series: [
@@ -1012,15 +1103,15 @@ function renderBalancePie() {
         data: slices.map((r) => ({
           name: r.name,
           value: r.value,
-          itemStyle: { color: r.color, cursor: r.drill ? 'pointer' : 'default' },
+          itemStyle: { color: r.color, cursor: 'pointer' },
         })),
       },
     ],
   })
-  // 点击还有下级的扇区 → 继续下钻
+  // 点击扇区 → 打开该明细科目的走势图（企业自身往期蓝色本期值柱 + 直接差值折线）
   bsPieChartInst.on('click', (p) => {
     const r = slices[p.dataIndex]
-    if (r && r.drill) drillBalancePie(r.id)
+    if (r) openPieItemTrend(r)
   })
   bsPieChartInst.resize()
 }
@@ -1072,20 +1163,58 @@ async function openPeerCompare(p) {
   }
   try {
     const opts = { industry, fiscalYear: p.fiscalYear, fiscalPeriod: p.fiscalPeriod }
-    const res = isIndicator
-      ? await fetchCompanyPeerCompare(meta.code, opts)
-      : await fetchCompanyStatementPeerCompare(meta.tableType, meta.itemName, opts)
-    // 指标后端字段为 indicatorValue，三张报表为 valueCurrent —— 统一成 value 供图表与排名复用
-    peerPoints.value = (res?.list || []).map((c) => ({
-      companyId: c.companyId,
-      companyCode: c.companyCode,
-      companyName: c.companyName,
-      shortName: c.shortName,
-      industry: c.industry,
-      value: isIndicator ? c.indicatorValue : c.valueCurrent,
-      valuePrevious: c.valuePrevious,
-      yoyChange: c.yoyChange,
-    }))
+    if (isIndicator) {
+      const res = await fetchCompanyPeerCompare(meta.code, opts)
+      // 指标后端字段为 indicatorValue —— 统一成 value 供图表与排名复用
+      peerPoints.value = (res?.list || []).map((c) => ({
+        companyId: c.companyId,
+        companyCode: c.companyCode,
+        companyName: c.companyName,
+        shortName: c.shortName,
+        industry: c.industry,
+        value: c.indicatorValue,
+        valuePrevious: c.valuePrevious,
+        yoyChange: c.yoyChange,
+      }))
+    } else if (trendValueMode.value === 'ratio' && meta.ratioBase) {
+      // 占比模式：同时取「明细科目」与「分母科目（合计项）」的同行业数据，逐公司换算成占比%
+      const [itemRes, baseRes] = await Promise.all([
+        fetchCompanyStatementPeerCompare(meta.tableType, meta.itemName, opts),
+        fetchCompanyStatementPeerCompare(meta.tableType, meta.ratioBase, opts),
+      ])
+      const baseMap = new Map()
+      for (const c of baseRes?.list || []) baseMap.set(peerKey(c), numOrNull(c.valueCurrent))
+      peerPoints.value = (itemRes?.list || []).map((c) => {
+        const v = numOrNull(c.valueCurrent)
+        const b = baseMap.get(peerKey(c))
+        return {
+          companyId: c.companyId,
+          companyCode: c.companyCode,
+          companyName: c.companyName,
+          shortName: c.shortName,
+          industry: c.industry,
+          amount: v, // 原始金额：仅「全行业占比」扇形图按金额统计用，图表不展示财务数字
+          value: v !== null && b !== null && b !== 0 ? (v / b) * 100 : null, // 该科目占自身合计项的比例%
+        }
+      })
+      // 后端按金额降序返回；占比模式下改按占比降序，保证前 5 名排名与配色跟图中数值一致
+      peerPoints.value.sort(
+        (a, b) => (numOrNull(b.value) ?? Number.NEGATIVE_INFINITY) - (numOrNull(a.value) ?? Number.NEGATIVE_INFINITY),
+      )
+    } else {
+      const res = await fetchCompanyStatementPeerCompare(meta.tableType, meta.itemName, opts)
+      // 三张报表为 valueCurrent —— 统一成 value 供图表与排名复用
+      peerPoints.value = (res?.list || []).map((c) => ({
+        companyId: c.companyId,
+        companyCode: c.companyCode,
+        companyName: c.companyName,
+        shortName: c.shortName,
+        industry: c.industry,
+        value: c.valueCurrent,
+        valuePrevious: c.valuePrevious,
+        yoyChange: c.yoyChange,
+      }))
+    }
     syncPeerChecks()
   } catch (e) {
     peerError.value = `加载同行业对比失败：${e?.message || e}`
@@ -1121,6 +1250,10 @@ function onTrendChartClick(params) {
 function buildPeerOption() {
   const list = peerPoints.value
   const currentId = currentCompany.value?.id
+  // 占比模式：柱子展示各公司「该科目占其自身合计项的比例%」（不是金额）
+  const isRatio = trendValueMode.value === 'ratio'
+  const barName = isRatio ? '占比%' : '本期值'
+  const fmtBar = (v) => (v === null || v === undefined ? '-' : isRatio ? `${fmtAmount(v)}%` : fmtAmount(v))
   const labels = list.map((c) => c.shortName || c.companyName || c.companyCode || '')
   const data = list.map((c) => ({
     // 未勾选的公司置 null（隐藏，但保留 x 轴位置）
@@ -1135,9 +1268,9 @@ function buildPeerOption() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      valueFormatter: (v) => (v === null || v === undefined ? '-' : fmtAmount(v)),
+      valueFormatter: fmtBar,
     },
-    legend: { data: ['本期值'], bottom: 0 },
+    legend: { data: [barName], bottom: 0 },
     grid: { left: 70, right: 30, top: 30, bottom: 78 },
     xAxis: {
       type: 'category',
@@ -1148,17 +1281,17 @@ function buildPeerOption() {
       { type: 'slider', xAxisIndex: 0, startValue: 0, endValue, height: 16, bottom: 40 },
       { type: 'inside', xAxisIndex: 0 },
     ],
-    yAxis: { type: 'value', name: '本期值' },
+    yAxis: { type: 'value', name: barName },
     series: [
       {
-        name: '本期值',
+        name: barName,
         type: 'bar',
         barWidth: 26,
         data,
         label: {
           show: true,
           position: 'top',
-          formatter: (p) => (p.value === null ? '' : fmtAmount(p.value)),
+          formatter: (p) => (p.value === null ? '' : isRatio ? `${fmtAmount(p.value)}%` : fmtAmount(p.value)),
         },
       },
     ],
@@ -1168,9 +1301,16 @@ function buildPeerOption() {
 function buildTrendOption() {
   const points = trendGroupPoints.value
   const labels = points.map((p) => p.label)
+  // 折线口径：默认同比%（扇形图明细条目打开的走势图为“直接差值”）
+  const isDiff = trendLineMode.value === 'diff'
+  const lineName = isDiff ? '差值' : '同比%'
+  // 数值口径：占比模式（从扇形图进入）时柱=占比%、线=占比差值（百分点），全部为百分比，不展示金额
+  const isRatio = trendValueMode.value === 'ratio'
+  const barName = isRatio ? '占比%' : '本期值'
   // 未勾选的期置 null：柱与线留空（x 轴位置保留）
   const valueData = points.map((p) => (trendChecked.value[p.label] ? numOrNull(p.value) : null))
-  const yoyData = points.map((p) => (trendChecked.value[p.label] ? numOrNull(p.yoyChange) : null))
+  const lineData = points.map((p) => (trendChecked.value[p.label] ? numOrNull(isDiff ? p.diff : p.yoyChange) : null))
+  const fmtVal = (v) => (v === null || v === undefined ? '-' : isRatio ? `${fmtAmount(v)}%` : fmtAmount(v))
   // 一次最多显示 10 个柱/折线点，超出的通过底部滑条 + 图表内拖拽横向浏览
   const MAX_VISIBLE = 10
   const zoomStart = labels.length > MAX_VISIBLE ? labels.length - MAX_VISIBLE : 0
@@ -1179,9 +1319,9 @@ function buildTrendOption() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      valueFormatter: (v) => (v === null || v === undefined ? '-' : fmtAmount(v)),
+      valueFormatter: fmtVal,
     },
-    legend: { data: ['本期值', '同比%'], bottom: 0 },
+    legend: { data: [barName, lineName], bottom: 0 },
     grid: { left: 70, right: 90, top: 36, bottom: 78 },
     xAxis: {
       type: 'category',
@@ -1202,28 +1342,37 @@ function buildTrendOption() {
       { type: 'inside', xAxisIndex: 0, disabled: false },
     ],
     yAxis: [
-      { type: 'value', name: '本期值' },
-      { type: 'value', name: '同比%', axisLabel: { formatter: '{value}%' } },
+      { type: 'value', name: barName },
+      isDiff
+        ? { type: 'value', name: isRatio ? '差值(百分点)' : '差值' }
+        : { type: 'value', name: '同比%', axisLabel: { formatter: '{value}%' } },
     ],
     series: [
       {
-        name: '本期值',
+        name: barName,
         type: 'bar', // 数据柱形图（蓝色）——可点击对比同行业
         color: '#409eff',
         barWidth: 26,
         cursor: 'pointer',
         data: valueData,
-        label: { show: true, position: 'top', formatter: (p) => (p.value === null ? '' : fmtAmount(p.value)) },
+        label: {
+          show: true,
+          position: 'top',
+          formatter: (p) => (p.value === null ? '' : isRatio ? `${fmtAmount(p.value)}%` : fmtAmount(p.value)),
+        },
       },
       {
-        name: '同比%',
-        type: 'line', // 折线图：同比百分比
+        name: lineName,
+        type: 'line', // 折线图：同比百分比 / 直接差值（本期值-上期值 / 占比差值）
         yAxisIndex: 1,
         color: '#f56c6c',
         smooth: true,
         connectNulls: false,
-        data: yoyData,
-        label: { show: true, formatter: (p) => (p.value === null ? '' : `${fmtAmount(p.value)}%`) },
+        data: lineData,
+        label: {
+          show: true,
+          formatter: (p) => (p.value === null ? '' : isRatio || !isDiff ? `${fmtAmount(p.value)}%` : fmtAmount(p.value)),
+        },
       },
     ],
   }
@@ -1540,7 +1689,7 @@ onMounted(() => {
                     v-if="hasBalancePie(row)"
                     type="button"
                     class="bsPieBtn"
-                    title="查看该项的构成占比扇形图（可逐级下钻）"
+                    title="查看该项的构成占比扇形图（点条目看走势图 / 可逐级下钻）"
                     @click.stop="openBalancePie(row)"
                   >
                     📊 占比
@@ -1563,7 +1712,7 @@ onMounted(() => {
     </transition>
   </teleport>
 
-  <!-- 资产负债表「合计 → 明细」构成占比扇形图浮层：可下拉切换合计项 / 点扇区逐级下钻 -->
+  <!-- 资产负债表/利润表/现金流量表「合计 → 明细」构成占比扇形图浮层：可下拉切换合计项 / 点条目看走势图 / 点「下钻」逐级下钻 -->
   <teleport to="body">
     <transition name="readerFade">
       <div v-if="bsPieOpen" class="peerPieZoomOverlay bsPieOverlay" @click.self="closeBalancePie">
@@ -1624,19 +1773,25 @@ onMounted(() => {
               </div>
             </div>
             <div class="bsPieList">
-              <div class="bsPieListTitle">明细构成（点击可下钻项）</div>
+              <div class="bsPieListTitle">明细构成（点击查看走势图）</div>
               <div
                 v-for="r in bsPieRows"
                 :key="r.id"
                 class="bsPieRow"
                 :class="{ drill: r.drill }"
-                @click="r.drill && drillBalancePie(r.id)"
+                title="点击查看该科目的历史走势图（企业自身往期，蓝色柱子可对比同行业）"
+                @click="openPieItemTrend(r)"
               >
                 <span class="bsPieDot" :style="{ background: r.color }"></span>
                 <span class="bsPieRowName" :title="r.name">{{ r.name }}</span>
                 <span class="bsPieRowVal">{{ fmtAmount(r.value) }}</span>
                 <span class="bsPieRowPct">{{ r.percent === null ? '负值' : `${r.percent.toFixed(2)}%` }}</span>
-                <span v-if="r.drill" class="bsPieDrillHint">下钻</span>
+                <span
+                  v-if="r.drill"
+                  class="bsPieDrillHint"
+                  title="查看该明细的下级构成"
+                  @click.stop="drillBalancePie(r.id)"
+                >下钻</span>
               </div>
               <div v-if="!bsPieRows.length" class="bsPieListEmpty">该合计项暂无可拆分的明细</div>
               <div v-if="bsPieHasNegative" class="bsPieNote">
@@ -1672,6 +1827,7 @@ onMounted(() => {
                   {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
                   <span class="readerStat">
                     {{ trendGroup === 'year' ? '年度展示' : '季度展示' }} · 共 {{ trendGroupPoints.length }} 期
+                    <template v-if="trendValueMode === 'ratio'"> · 按占比%（该科目占合计项）展示</template>
                     <template v-if="trendMeta?.kind"> · 点击蓝柱可对比同行业</template>
                   </span>
                 </template>
@@ -1745,7 +1901,7 @@ onMounted(() => {
                   <span class="peerRankName" :title="c.companyName || ''">
                     {{ c.shortName || c.companyName || c.companyCode }}
                   </span>
-                  <span class="peerRankVal">{{ fmtAmount(c.value) }}</span>
+                  <span class="peerRankVal">{{ trendValueMode === 'ratio' ? `${fmtAmount(c.value)}%` : fmtAmount(c.value) }}</span>
                 </div>
                 <div v-if="!peerTop5.length && !peerLoading" class="peerRankEmpty">暂无数据</div>
 
@@ -2172,9 +2328,9 @@ onMounted(() => {
   padding: 5px 6px;
   border-radius: 6px;
   background: rgba(64, 158, 255, 0.06);
+  cursor: pointer;
 }
-.bsPieRow.drill { cursor: pointer; }
-.bsPieRow.drill:hover { background: rgba(64, 158, 255, 0.16); }
+.bsPieRow:hover { background: rgba(64, 158, 255, 0.16); }
 .bsPieDot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .bsPieRowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bsPieRowVal { font-variant-numeric: tabular-nums; }
@@ -2191,7 +2347,9 @@ onMounted(() => {
   border-radius: 999px;
   background: rgba(64, 158, 255, 0.16);
   color: var(--primary-color, #409eff);
+  cursor: pointer;
 }
+.bsPieDrillHint:hover { background: rgba(64, 158, 255, 0.3); }
 .bsPieListEmpty { font-size: 12px; color: var(--text-muted, #909399); }
 .bsPieNote { margin-top: 6px; font-size: 12px; color: #e6a23c; }
 
@@ -2296,7 +2454,7 @@ html.dark .bsPieCrumb { color: #b6bdc9; }
 html.dark .bsPieCrumbLink { color: #79bbff; }
 html.dark .bsPieCrumbLink.current { color: #e5eaf3; }
 html.dark .bsPieRow { background: rgba(64, 158, 255, 0.12); }
-html.dark .bsPieRow.drill:hover { background: rgba(64, 158, 255, 0.22); }
+html.dark .bsPieRow:hover { background: rgba(64, 158, 255, 0.22); }
 html.dark .bsPieRowPct { color: #b6bdc9; }
 html.dark .bsPieList { border-left-color: rgba(255, 255, 255, 0.12); }
 html.dark .bsPieBtn {
