@@ -578,7 +578,7 @@ function renderPeerPieZoom() {
   peerPieZoomInst.resize()
 }
 
-// ===== 资产负债表「合计 → 明细」构成占比扇形图 =====
+// ===== 资产负债表 / 现金流量表「合计 → 明细」构成占比扇形图 =====
 // 数据只有扁平行 + parent_item + is_total，需要用「排序 + 小计折叠 + 子集求和」还原层级：
 //   流动资产合计(220) ← 货币资金(0) / 应收票据(60) / …   （组内 is_total 行收编上方明细）
 //   资产总计(470)     ← 流动资产合计(220) + 非流动资产合计(460)（顶层汇总行 = 前面同级合计之和）
@@ -714,6 +714,65 @@ function buildBalanceTree(rows) {
   return { roots, nodes, byId, pieNodes }
 }
 
+/**
+ * 由现金流量表行还原可下钻层级树：{ roots[], nodes[], byId, pieNodes[] }
+ * 现金流量表结构与资产负债表不同，无需小计折叠：
+ *   明细行的 parent_item = 其所属「XX活动现金流入/流出小计」的名称（如「销售商品、提供劳务收到的现金」→「经营活动现金流入小计」）；
+ *   小计行自身的 parent_item = 活动名（经营活动 / 投资活动 / 筹资活动）。
+ * → 直接把 parent_item 指向「名称以“小计”结尾的合计行」的明细行收编为该小计行的子节点即可，
+ *   经营 / 投资 / 筹资三大活动的现金流入小计、现金流出小计都能拿到各自构成的占比。
+ */
+function buildCashFlowTree(rows) {
+  const list = (rows || []).filter((r) => numOrNull(r.valueCurrent) !== null)
+  const sorted = [...list].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id ?? 0) - (b.id ?? 0),
+  )
+  const nodes = sorted.map((r) => ({
+    id: r.id,
+    name: r.itemName || '',
+    value: numOrNull(r.valueCurrent) ?? 0,
+    unit: r.unit || '',
+    level: Number(r.itemLevel || 1),
+    isTotal: Number(r.isTotal) === 1,
+    isSubItem: Number(r.isSubItem) === 1,
+    parentItem: String(r.parentItem || '').trim(),
+    sortOrder: r.sortOrder ?? 0,
+    children: null,
+    parent: null,
+    depth: 0,
+  }))
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const byName = new Map()
+  for (const n of nodes) {
+    const k = n.name.trim()
+    if (!byName.has(k)) byName.set(k, [])
+    byName.get(k).push(n)
+  }
+  // 明细行 → 挂到其归属的小计行下（parent_item 指向名称以「小计」结尾的合计行；跳过“其中”附注行）
+  for (const n of nodes) {
+    if (!n.parentItem || n.isSubItem) continue
+    const parent = (byName.get(n.parentItem) || []).find(
+      (p) => p.id !== n.id && p.isTotal && p.name.trim().endsWith('小计'),
+    )
+    if (!parent) continue
+    parent.children = parent.children || []
+    parent.children.push(n)
+    n.parent = parent
+  }
+  const roots = nodes.filter((n) => !n.parent).sort((a, b) => a.sortOrder - b.sortOrder)
+  // 展平出「可查看占比」的合计项（至少 2 个明细才值得画扇形图），供浮层下拉框切换
+  const pieNodes = []
+  const walk = (node, depth) => {
+    node.depth = depth
+    if (node.children && node.children.length >= 2) {
+      pieNodes.push(node)
+      for (const c of node.children) walk(c, depth + 1)
+    }
+  }
+  for (const r of roots) walk(r, 0)
+  return { roots, nodes, byId, pieNodes }
+}
+
 /** 节点的祖先链（含自身），用于面包屑与「上一层」 */
 function balanceNodePath(node) {
   const path = []
@@ -735,16 +794,24 @@ function pieColorAt(i) {
   return PIE_PALETTE[i % PIE_PALETTE.length]
 }
 
-/** 由当前资产负债表明细行构造的层级树（切季度财报后自动重建） */
-const balanceTree = computed(() => buildBalanceTree(balance.value))
+// 「构成占比」层级树：阅读器在资产负债表 tab 时用 parentItem + 小计折叠还原层级；
+// 切到现金流量表 tab 时按「明细行 parent_item = 小计行名称」直挂（经营/投资/筹资的现金流入、流出小计）。
+// 切季度财报后自动重建。
+const balanceTree = computed(() =>
+  readerTab.value === 'cashflow'
+    ? buildCashFlowTree(cashflow.value)
+    : buildBalanceTree(balance.value),
+)
 
 function balancePieNodeOf(row) {
   return row ? balanceTree.value.byId.get(row.id) || null : null
 }
 
-/** 该行是否可以查看构成占比（仅资产负债表 tab，且合计项至少有 2 个明细） */
+/** 该行是否可以查看构成占比：
+ * 资产负债表 tab → 合计项（流动资产/非流动资产/…）至少有 2 个明细；
+ * 现金流量表 tab → 经营/投资/筹资的现金流入小计、现金流出小计至少有 2 个明细 */
 function hasBalancePie(row) {
-  if (readerTab.value !== 'balance') return false
+  if (readerTab.value !== 'balance' && readerTab.value !== 'cashflow') return false
   const node = balancePieNodeOf(row)
   return !!(node && node.children && node.children.length >= 2)
 }
@@ -787,7 +854,7 @@ const bsPieHasSlices = computed(() => bsPieRows.value.some((r) => r.value > 0))
 /** 是否存在负值明细（扇形图无法表示负值，只在列表标注） */
 const bsPieHasNegative = computed(() => bsPieRows.value.some((r) => r.value < 0))
 
-/** 打开某合计项的构成占比扇形图（阅读器资产负债表里的「📊 占比」按钮） */
+/** 打开某合计项的构成占比扇形图（阅读器里资产负债表 / 现金流量表的「📊 占比」按钮） */
 async function openBalancePie(row) {
   const node = balancePieNodeOf(row)
   if (!node || !node.children) return
@@ -892,8 +959,8 @@ function renderBalancePie() {
   bsPieChartInst.resize()
 }
 
-// 切换季度财报 / 重新载入资产负债表 → 浮层按行 id 重新定位，找不到则自动关闭
-watch(balance, () => {
+// 切换季度财报 / 重新载入资产负债表、现金流量表 → 浮层按行 id 重新定位，找不到则自动关闭
+watch([balance, cashflow], () => {
   if (!bsPieOpen.value) return
   const id = bsPieCurrent.value?.id
   const node = id ? balanceTree.value.byId.get(id) : null
@@ -905,9 +972,9 @@ watch(balance, () => {
   nextTick(renderBalancePie)
 })
 
-// 阅读器切到非资产负债表 tab → 关闭构成占比浮层（占比数据只对资产负债表有意义）
+// 阅读器切到非资产负债表 / 现金流量表 tab → 关闭构成占比浮层（占比数据只对这两张报表有意义）
 watch(readerTab, (t) => {
-  if (bsPieOpen.value && t !== 'balance') closeBalancePie()
+  if (bsPieOpen.value && t !== 'balance' && t !== 'cashflow') closeBalancePie()
 })
 
 /** 重置对比勾选（默认全部选中） */
@@ -1402,12 +1469,12 @@ onMounted(() => {
                   >
                     {{ fmtAmount(row.valueCurrent) }} 📈
                   </button>
-                  <!-- 资产负债表合计项（流动资产/非流动资产/流动负债/非流动负债…）的构成占比扇形图 -->
+                  <!-- 资产负债表合计项 / 现金流量表流入流出小计（经营 · 投资 · 筹资）的构成占比扇形图 -->
                   <button
                     v-if="hasBalancePie(row)"
                     type="button"
                     class="bsPieBtn"
-                    title="查看该合计项的构成占比扇形图（可逐级下钻）"
+                    title="查看该项的构成占比扇形图（可逐级下钻）"
                     @click.stop="openBalancePie(row)"
                   >
                     📊 占比
