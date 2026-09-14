@@ -155,6 +155,7 @@ function openReader(tab) {
 
 function closeReader() {
   readerOpen.value = false
+  closeBalancePie()
 }
 
 const currentReportLabel = computed(() => {
@@ -577,6 +578,338 @@ function renderPeerPieZoom() {
   peerPieZoomInst.resize()
 }
 
+// ===== 资产负债表「合计 → 明细」构成占比扇形图 =====
+// 数据只有扁平行 + parent_item + is_total，需要用「排序 + 小计折叠 + 子集求和」还原层级：
+//   流动资产合计(220) ← 货币资金(0) / 应收票据(60) / …   （组内 is_total 行收编上方明细）
+//   资产总计(470)     ← 流动资产合计(220) + 非流动资产合计(460)（顶层汇总行 = 前面同级合计之和）
+//   负债和所有者权益总计 ← 负债合计 + 所有者权益合计
+
+/** 两份金额是否近似相等（校验「合计 = 明细之和」，容忍 0.5% 的源数据缺失/四舍五入误差） */
+function nearAmount(a, b) {
+  const x = numOrNull(a)
+  const y = numOrNull(b)
+  if (x === null || y === null) return false
+  const tol = Math.max(1, Math.abs(y) * 0.005)
+  return Math.abs(x - y) <= tol
+}
+
+/** 组内折叠：明细按 sort_order 依次入栈，遇到金额对得上栈内明细之和的 is_total 行，
+ *  就把栈内明细收编为它的子节点（形成一层嵌套）；对不上则视为普通明细 */
+function foldSubTotals(nodes) {
+  const top = []
+  const pending = []
+  for (const n of nodes) {
+    if (n.isTotal && pending.length) {
+      const sum = pending.reduce((s, x) => s + x.value, 0)
+      if (nearAmount(sum, n.value)) {
+        n.children = pending.splice(0, pending.length)
+        for (const k of n.children) k.parent = n
+      } else {
+        top.push(...pending.splice(0, pending.length))
+      }
+    }
+    pending.push(n)
+  }
+  top.push(...pending)
+  return top
+}
+
+/**
+ * 顶层汇总行（parent_item 为空且 is_total=1：资产总计 / 负债合计 / 所有者权益合计 /
+ * 负债和所有者权益总计）的子项，在「排在自己前面的同级汇总节点」里做子集求和匹配：
+ * 取偏差最小 → 项数最少 → 最靠近自己的组合（负值项也参与匹配，保证口径正确）
+ */
+function pickChildSubset(node, pool) {
+  const cands = pool
+    .filter((c) => c !== node && c.sortOrder < node.sortOrder)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 16)
+  const tol = Math.max(1, Math.abs(node.value) * 0.005)
+  const n = cands.length
+  let best = null
+  let bestScore = null
+  for (let mask = 1; mask < 1 << n; mask++) {
+    let sum = 0
+    let count = 0
+    let minOrder = Infinity
+    for (let i = 0; i < n; i++) {
+      if (mask & (1 << i)) {
+        sum += cands[i].value
+        count++
+        if (cands[i].sortOrder < minOrder) minOrder = cands[i].sortOrder
+      }
+    }
+    if (count < 2) continue
+    const dev = Math.abs(sum - node.value)
+    if (dev > tol) continue
+    // 偏差大于 1 元视为近似匹配（排序时排后），优先「完全对得上」的组合
+    const score = [dev > 1 ? 1 : 0, count, -minOrder]
+    if (
+      !bestScore ||
+      score[0] < bestScore[0] ||
+      (score[0] === bestScore[0] && score[1] < bestScore[1]) ||
+      (score[0] === bestScore[0] && score[1] === bestScore[1] && score[2] < bestScore[2])
+    ) {
+      bestScore = score
+      best = cands.filter((_, i) => mask & (1 << i)).sort((a, b) => a.sortOrder - b.sortOrder)
+    }
+  }
+  return best
+}
+
+/** 由报表行还原可下钻层级树：{ roots[], nodes[], byId, pieNodes[] } */
+function buildBalanceTree(rows) {
+  const list = (rows || []).filter((r) => numOrNull(r.valueCurrent) !== null)
+  const sorted = [...list].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id ?? 0) - (b.id ?? 0),
+  )
+  const nodes = sorted.map((r) => ({
+    id: r.id,
+    name: r.itemName || '',
+    value: numOrNull(r.valueCurrent) ?? 0,
+    unit: r.unit || '',
+    level: Number(r.itemLevel || 1),
+    isTotal: Number(r.isTotal) === 1,
+    sortOrder: r.sortOrder ?? 0,
+    children: null,
+    parent: null,
+    depth: 0,
+  }))
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  // 按 parent_item 分组（流动资产 / 非流动资产 / 流动负债 / 非流动负债 / 所有者权益 …）
+  const groups = new Map()
+  sorted.forEach((r, i) => {
+    const g = (r.parentItem ?? '') || '__root__'
+    if (!groups.has(g)) groups.set(g, [])
+    groups.get(g).push(nodes[i])
+  })
+  const groupTops = []
+  const rootRows = []
+  for (const [g, ns] of groups) {
+    if (g === '__root__') rootRows.push(...ns)
+    else groupTops.push(...foldSubTotals(ns))
+  }
+  const pool = [...groupTops, ...rootRows]
+  for (const rn of rootRows) {
+    if (!rn.isTotal) continue
+    const kids = pickChildSubset(rn, pool)
+    if (kids) {
+      rn.children = kids
+      for (const k of kids) k.parent = rn
+    }
+  }
+  const roots = [...groupTops, ...rootRows]
+    .filter((n) => !n.parent)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+  // 展平出「可查看占比」的合计项（至少 2 个明细才值得画扇形图），供浮层下拉框切换
+  const pieNodes = []
+  const walk = (node, depth) => {
+    node.depth = depth
+    if (node.children && node.children.length >= 2) {
+      pieNodes.push(node)
+      for (const c of node.children) walk(c, depth + 1)
+    }
+  }
+  for (const r of roots) walk(r, 0)
+  return { roots, nodes, byId, pieNodes }
+}
+
+/** 节点的祖先链（含自身），用于面包屑与「上一层」 */
+function balanceNodePath(node) {
+  const path = []
+  let cur = node
+  while (cur) {
+    path.unshift(cur)
+    cur = cur.parent
+  }
+  return path
+}
+
+/** 扇形图配色（按明细项位置取色，右侧列表圆点与扇区一一对应） */
+const PIE_PALETTE = [
+  '#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#9b59b6', '#1abc9c',
+  '#e67e22', '#3498db', '#2ecc71', '#f39c12', '#16a085', '#8e44ad',
+  '#c0392b', '#27ae60', '#d35400', '#7f8c8d',
+]
+function pieColorAt(i) {
+  return PIE_PALETTE[i % PIE_PALETTE.length]
+}
+
+/** 由当前资产负债表明细行构造的层级树（切季度财报后自动重建） */
+const balanceTree = computed(() => buildBalanceTree(balance.value))
+
+function balancePieNodeOf(row) {
+  return row ? balanceTree.value.byId.get(row.id) || null : null
+}
+
+/** 该行是否可以查看构成占比（仅资产负债表 tab，且合计项至少有 2 个明细） */
+function hasBalancePie(row) {
+  if (readerTab.value !== 'balance') return false
+  const node = balancePieNodeOf(row)
+  return !!(node && node.children && node.children.length >= 2)
+}
+
+// —— 构成占比浮层状态 ——
+const bsPieOpen = ref(false)
+const bsPiePath = ref([]) // 当前节点的祖先链（末位为当前项）
+const bsPieChartEl = ref(null)
+let bsPieChartInst = null
+
+const bsPieCurrent = computed(() => bsPiePath.value[bsPiePath.value.length - 1] || null)
+
+/** 明细列表（金额 / 占比 / 是否可继续下钻），与扇形图配色一一对应 */
+const bsPieRows = computed(() => {
+  const node = bsPieCurrent.value
+  if (!node || !node.children) return []
+  const base = node.children.reduce((s, c) => s + Math.max(c.value, 0), 0)
+  return node.children.map((c, i) => ({
+    id: c.id,
+    name: c.name,
+    value: c.value,
+    color: pieColorAt(i),
+    percent: c.value > 0 && base > 0 ? (c.value / base) * 100 : null,
+    drill: !!(c.children && c.children.length >= 2),
+  }))
+})
+
+/** 明细之和与报表合计的差额（源数据缺失/四舍五入时提示口径） */
+const bsPieDiff = computed(() => {
+  const node = bsPieCurrent.value
+  if (!node || !node.children) return null
+  const sum = node.children.reduce((s, c) => s + c.value, 0)
+  const diff = sum - node.value
+  return Math.abs(diff) > 0.5 ? diff : null
+})
+
+/** 是否存在可画扇区的正值明细（明细全为负值/0 时用文字提示代替空白图） */
+const bsPieHasSlices = computed(() => bsPieRows.value.some((r) => r.value > 0))
+
+/** 是否存在负值明细（扇形图无法表示负值，只在列表标注） */
+const bsPieHasNegative = computed(() => bsPieRows.value.some((r) => r.value < 0))
+
+/** 打开某合计项的构成占比扇形图（阅读器资产负债表里的「📊 占比」按钮） */
+async function openBalancePie(row) {
+  const node = balancePieNodeOf(row)
+  if (!node || !node.children) return
+  bsPiePath.value = balanceNodePath(node)
+  bsPieOpen.value = true
+  await nextTick()
+  renderBalancePie()
+}
+
+function closeBalancePie() {
+  bsPieOpen.value = false
+  bsPiePath.value = []
+  bsPieChartInst?.dispose()
+  bsPieChartInst = null
+}
+
+/** 下钻到某个明细项（该项还有下级时：资产总计 → 流动资产合计 → 货币资金…） */
+async function drillBalancePie(id) {
+  const node = balanceTree.value.byId.get(id)
+  if (!node || !node.children || node.children.length < 2) return
+  bsPiePath.value = balanceNodePath(node)
+  await nextTick()
+  renderBalancePie()
+}
+
+/** 上钻一级 */
+function bsPieGoUp() {
+  if (bsPiePath.value.length <= 1) return
+  bsPiePath.value = bsPiePath.value.slice(0, -1)
+  nextTick(renderBalancePie)
+}
+
+/** 面包屑跳转到某一层 */
+function bsPieJumpTo(index) {
+  if (index < 0 || index >= bsPiePath.value.length - 1) return
+  bsPiePath.value = bsPiePath.value.slice(0, index + 1)
+  nextTick(renderBalancePie)
+}
+
+/** 浮层顶部下拉框切换要查看的合计项 */
+function onBsPieSelect(id) {
+  const node = balanceTree.value.byId.get(id)
+  if (!node || !node.children) return
+  bsPiePath.value = balanceNodePath(node)
+  nextTick(renderBalancePie)
+}
+
+/** 名称过长时截断（扇形图标签用） */
+function shortItemName(name, len = 10) {
+  const s = String(name || '')
+  return s.length > len ? `${s.slice(0, len)}…` : s
+}
+
+/**
+ * 渲染构成占比扇形图（负值明细无法用扇形表示，只在右侧列表标注为「负值」）
+ * tooltip 挂到 body，保证悬浮说明浮层始终在最上层、不被面板裁剪
+ */
+function renderBalancePie() {
+  const el = bsPieChartEl.value
+  if (!el) return
+  bsPieChartInst?.dispose()
+  bsPieChartInst = null
+  const slices = bsPieRows.value.filter((r) => r.value > 0)
+  if (!slices.length) return
+  bsPieChartInst = echarts.init(el, isDark.value ? 'dark' : null)
+  bsPieChartInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      appendToBody: true,
+      formatter: (p) => {
+        const r = slices[p.dataIndex]
+        return `${r.name}<br/>${fmtAmount(r.value)}（${p.percent}%）${r.drill ? '<br/>点击可继续下钻' : ''}`
+      },
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['32%', '66%'],
+        center: ['50%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.45)' },
+        label: {
+          show: true,
+          fontSize: 11,
+          formatter: (p) => `${shortItemName(slices[p.dataIndex].name)}\n${p.percent}%`,
+        },
+        labelLine: { length: 8, length2: 8 },
+        data: slices.map((r) => ({
+          name: r.name,
+          value: r.value,
+          itemStyle: { color: r.color, cursor: r.drill ? 'pointer' : 'default' },
+        })),
+      },
+    ],
+  })
+  // 点击还有下级的扇区 → 继续下钻
+  bsPieChartInst.on('click', (p) => {
+    const r = slices[p.dataIndex]
+    if (r && r.drill) drillBalancePie(r.id)
+  })
+  bsPieChartInst.resize()
+}
+
+// 切换季度财报 / 重新载入资产负债表 → 浮层按行 id 重新定位，找不到则自动关闭
+watch(balance, () => {
+  if (!bsPieOpen.value) return
+  const id = bsPieCurrent.value?.id
+  const node = id ? balanceTree.value.byId.get(id) : null
+  if (!node || !node.children) {
+    closeBalancePie()
+    return
+  }
+  bsPiePath.value = balanceNodePath(node)
+  nextTick(renderBalancePie)
+})
+
+// 阅读器切到非资产负债表 tab → 关闭构成占比浮层（占比数据只对资产负债表有意义）
+watch(readerTab, (t) => {
+  if (bsPieOpen.value && t !== 'balance') closeBalancePie()
+})
+
 /** 重置对比勾选（默认全部选中） */
 function syncPeerChecks() {
   const checked = {}
@@ -811,6 +1144,7 @@ watch(isDark, () => {
       if (peerPieZoomOpen.value) renderPeerPieZoom()
     })
   }
+  if (bsPieOpen.value) nextTick(renderBalancePie)
 })
 
 onMounted(() => {
@@ -1068,6 +1402,16 @@ onMounted(() => {
                   >
                     {{ fmtAmount(row.valueCurrent) }} 📈
                   </button>
+                  <!-- 资产负债表合计项（流动资产/非流动资产/流动负债/非流动负债…）的构成占比扇形图 -->
+                  <button
+                    v-if="hasBalancePie(row)"
+                    type="button"
+                    class="bsPieBtn"
+                    title="查看该合计项的构成占比扇形图（可逐级下钻）"
+                    @click.stop="openBalancePie(row)"
+                  >
+                    📊 占比
+                  </button>
                 </template>
               </el-table-column>
               <el-table-column label="上期" align="right" min-width="180">
@@ -1080,6 +1424,95 @@ onMounted(() => {
                 </template>
               </el-table-column>
             </el-table>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </teleport>
+
+  <!-- 资产负债表「合计 → 明细」构成占比扇形图浮层：可下拉切换合计项 / 点扇区逐级下钻 -->
+  <teleport to="body">
+    <transition name="readerFade">
+      <div v-if="bsPieOpen" class="peerPieZoomOverlay bsPieOverlay" @click.self="closeBalancePie">
+        <div class="peerPieZoomPanel bsPiePanel">
+          <div class="peerPieZoomHead">
+            <div class="peerPieZoomTitle">
+              📊 {{ bsPieCurrent?.name || '' }} · 构成占比
+              <span class="peerPieZoomSub">
+                {{ currentCompany?.companyName || '' }} · {{ currentReportLabel || '' }}
+                · 明细 {{ bsPieRows.length }} 项 · 报表合计 {{ fmtAmount(bsPieCurrent?.value) }}
+              </span>
+            </div>
+            <div class="bsPieTools">
+              <button
+                v-if="bsPiePath.length > 1"
+                type="button"
+                class="readerClose"
+                title="返回上一层合计项"
+                @click="bsPieGoUp"
+              >⤴ 上一层</button>
+              <button type="button" class="readerClose" @click="closeBalancePie">✕ 关闭</button>
+            </div>
+          </div>
+
+          <div class="bsPieToolbar">
+            <span class="readerPickerLabel">切换报表项：</span>
+            <el-select
+              :model-value="bsPieCurrent?.id"
+              size="small"
+              style="width: 360px"
+              popper-class="readerSelectPopper bsPieSelectPopper"
+              @change="onBsPieSelect"
+            >
+              <el-option
+                v-for="n in balanceTree.pieNodes"
+                :key="n.id"
+                :label="`${'　'.repeat(n.depth)}${n.name}（${n.children.length} 项）`"
+                :value="n.id"
+              />
+            </el-select>
+            <span class="bsPieCrumb">
+              <template v-for="(p, i) in bsPiePath" :key="p.id">
+                <span v-if="i > 0" class="bsPieCrumbSep">›</span>
+                <a
+                  class="bsPieCrumbLink"
+                  :class="{ current: i === bsPiePath.length - 1 }"
+                  @click="bsPieJumpTo(i)"
+                >{{ p.name }}</a>
+              </template>
+            </span>
+          </div>
+
+          <div class="bsPieBody">
+            <div class="bsPieChartWrap">
+              <div v-if="bsPieHasSlices" ref="bsPieChartEl" class="bsPieChart"></div>
+              <div v-else class="bsPieEmptyTip">
+                该合计项的明细均为负值或 0，无法用扇形图表示，请查看右侧明细列表
+              </div>
+            </div>
+            <div class="bsPieList">
+              <div class="bsPieListTitle">明细构成（点击可下钻项）</div>
+              <div
+                v-for="r in bsPieRows"
+                :key="r.id"
+                class="bsPieRow"
+                :class="{ drill: r.drill }"
+                @click="r.drill && drillBalancePie(r.id)"
+              >
+                <span class="bsPieDot" :style="{ background: r.color }"></span>
+                <span class="bsPieRowName" :title="r.name">{{ r.name }}</span>
+                <span class="bsPieRowVal">{{ fmtAmount(r.value) }}</span>
+                <span class="bsPieRowPct">{{ r.percent === null ? '负值' : `${r.percent.toFixed(2)}%` }}</span>
+                <span v-if="r.drill" class="bsPieDrillHint">下钻</span>
+              </div>
+              <div v-if="!bsPieRows.length" class="bsPieListEmpty">该合计项暂无可拆分的明细</div>
+              <div v-if="bsPieHasNegative" class="bsPieNote">
+                ⚠ 负值明细不计入扇形图（占比按正值明细合计计算，见右侧「负值」标注）
+              </div>
+              <div v-if="bsPieDiff !== null" class="bsPieNote">
+                ⚠ 明细合计与报表合计相差 {{ fmtAmount(bsPieDiff) }}（源数据缺失或四舍五入），占比按明细金额计算
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1534,6 +1967,101 @@ onMounted(() => {
   background-color: rgba(236, 245, 255, 0.9);
 }
 
+/* —— 资产负债表合计项「构成占比」按钮 + 浮层 —— */
+.bsPieBtn {
+  margin-left: 6px;
+  border: 1px solid var(--border-color, #dcdfe6);
+  background: rgba(255, 255, 255, 0.6);
+  color: #e6a23c;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.bsPieBtn:hover { background: rgba(230, 162, 60, 0.14); border-color: rgba(230, 162, 60, 0.5); }
+.bsPieOverlay { z-index: 7200; } /* 高于同行业占比放大浮层(7000) */
+.bsPiePanel { width: 96vw; height: 94vh; } /* 基本占满屏幕，背景半透明 */
+.bsPieTools { display: flex; gap: 8px; }
+.bsPieToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.bsPieCrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+  color: #606266;
+}
+.bsPieCrumbSep { color: #c0c4cc; }
+.bsPieCrumbLink { color: var(--primary-color, #409eff); cursor: pointer; }
+.bsPieCrumbLink.current { color: #303133; font-weight: 700; cursor: default; }
+.bsPieBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 8px 14px 12px;
+}
+.bsPieChartWrap { flex: 1; min-height: 0; display: flex; }
+.bsPieChart { flex: 1; min-height: 0; width: 100%; }
+.bsPieEmptyTip {
+  margin: auto;
+  max-width: 360px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted, #909399);
+}
+.bsPieList {
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  overflow: auto;
+}
+.bsPieListTitle { font-weight: 800; font-size: 13px; margin-bottom: 4px; }
+.bsPieRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: rgba(64, 158, 255, 0.06);
+}
+.bsPieRow.drill { cursor: pointer; }
+.bsPieRow.drill:hover { background: rgba(64, 158, 255, 0.16); }
+.bsPieDot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.bsPieRowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bsPieRowVal { font-variant-numeric: tabular-nums; }
+.bsPieRowPct {
+  width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #606266;
+}
+.bsPieDrillHint {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(64, 158, 255, 0.16);
+  color: var(--primary-color, #409eff);
+}
+.bsPieListEmpty { font-size: 12px; color: var(--text-muted, #909399); }
+.bsPieNote { margin-top: 6px; font-size: 12px; color: #e6a23c; }
+
 .readerFade-enter-active, .readerFade-leave-active { transition: opacity 0.22s ease; }
 .readerFade-enter-from, .readerFade-leave-to { opacity: 0; }
 </style>
@@ -1622,6 +2150,23 @@ html.dark .peerPieZoomHead {
 }
 html.dark .peerPieZoomSub { color: #b6bdc9; }
 html.dark .peerPieZoomBtn {
+  background: rgba(58, 64, 74, 0.6);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* 构成占比浮层下拉面板：需高于浮层(7200)，且必须写在 .readerSelectPopper(4000) 之后 */
+.bsPieSelectPopper {
+  z-index: 7600 !important;
+}
+html.dark .bsPieToolbar { border-bottom-color: rgba(255, 255, 255, 0.08); }
+html.dark .bsPieCrumb { color: #b6bdc9; }
+html.dark .bsPieCrumbLink { color: #79bbff; }
+html.dark .bsPieCrumbLink.current { color: #e5eaf3; }
+html.dark .bsPieRow { background: rgba(64, 158, 255, 0.12); }
+html.dark .bsPieRow.drill:hover { background: rgba(64, 158, 255, 0.22); }
+html.dark .bsPieRowPct { color: #b6bdc9; }
+html.dark .bsPieList { border-left-color: rgba(255, 255, 255, 0.12); }
+html.dark .bsPieBtn {
   background: rgba(58, 64, 74, 0.6);
   border-color: rgba(255, 255, 255, 0.16);
 }
