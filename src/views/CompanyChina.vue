@@ -156,6 +156,7 @@ function openReader(tab) {
 function closeReader() {
   readerOpen.value = false
   closeBalancePie()
+  closeOverallPie()
 }
 
 const currentReportLabel = computed(() => {
@@ -492,6 +493,12 @@ function closeTrend() {
       bsPieOpen.value = true
       nextTick(renderBalancePie)
     }
+  }
+  // 若走势图是从「总体构成」扇形图打开的，关闭后自动回到该浮层
+  if (ovPieResume.value) {
+    ovPieResume.value = false
+    ovPieOpen.value = true
+    nextTick(renderOverallPie)
   }
 }
 
@@ -1132,7 +1139,180 @@ watch([income, balance, cashflow], () => {
 // 阅读器切到非资产负债表 / 利润表 / 现金流量表 tab → 关闭构成占比浮层（占比数据只对这三张报表有意义）
 watch(readerTab, (t) => {
   if (bsPieOpen.value && t !== 'balance' && t !== 'cashflow' && t !== 'income') closeBalancePie()
+  // 「总体构成」只针对资产负债表，切到别的 tab 就关掉
+  if (ovPieOpen.value && t !== 'balance') closeOverallPie()
 })
+
+// 切换季度财报 / 重新载入资产负债表 → 总体构成浮层重绘
+watch(balance, () => {
+  if (ovPieOpen.value) nextTick(renderOverallPie)
+})
+
+// ===== 资产负债表「总体构成」扇形图（四大区域 + 全部明细，占比统一按「占总资产%」）=====
+// 数据直接来自现有资产负债表层级树（buildBalanceTree），不需要任何额外接口；
+// 点区域 / 明细 → 该科目「占总资产%」的历史走势（蓝柱 + 差值折线）→ 点蓝柱 → 同行业对比，样式与已有完全一致。
+const OV_PIE_TOTAL_NAMES = ['资产总计', '负债和所有者权益(或股东权益)总计'] // 分母（总资产）候选名
+const OV_PIE_REGIONS = ['流动资产合计', '非流动资产合计', '流动负债合计', '非流动负债合计']
+
+/** 四大区域配色：一个区域一个色相，右侧列表圆标与内环扇区一一对应 */
+function ovRegionColor(ri) {
+  return `hsl(${(ri * 84 + 6) % 360}, 68%, 52%)`
+}
+
+/** 区域内部明细配色：同色相由浅到深，视觉上归到所属区域 */
+function ovItemColor(ri, ii, n) {
+  const light = 74 - (ii / Math.max(n - 1, 1)) * 32
+  return `hsl(${(ri * 84 + 6) % 360}, 62%, ${light.toFixed(0)}%)`
+}
+
+const ovPieOpen = ref(false)
+const ovPieEl = ref(null)
+let ovPieInst = null
+const ovPieResume = ref(false) // 从总体构成浮层打开走势图 → 关闭走势图后自动回到该浮层
+
+/**
+ * 总体构成数据：分母 = 资产总计；四个区域（流动资产/非流动资产/流动负债/非流动负债）各带全部明细，
+ * 每项占比一律按「占总资产%」计算（资产与负债分列报表两侧，故四区域占比之和会大于 100%，属正常）。
+ */
+const ovPieModel = computed(() => {
+  const tree = buildBalanceTree(balance.value)
+  const total = OV_PIE_TOTAL_NAMES.map((nm) => tree.nodes.find((n) => n.name === nm)).find((n) => n && n.value)
+  if (!total) return null
+  const regions = []
+  OV_PIE_REGIONS.forEach((nm, ri) => {
+    const n = tree.nodes.find((x) => x.name === nm)
+    if (!n) return
+    const kids = (n.children || []).filter((c) => c !== n)
+    regions.push({
+      id: n.id,
+      name: n.name,
+      value: n.value,
+      percent: (n.value / total.value) * 100,
+      color: ovRegionColor(ri),
+      items: kids.map((c, ii) => ({
+        id: c.id,
+        name: c.name,
+        value: c.value,
+        percent: (c.value / total.value) * 100,
+        color: ovItemColor(ri, ii, kids.length),
+      })),
+    })
+  })
+  if (regions.length < 2) return null
+  return { totalName: total.name, totalValue: total.value, regions }
+})
+
+/** 明细条目总数（浮层标题展示用） */
+const ovPieItemCount = computed(() =>
+  (ovPieModel.value?.regions || []).reduce((s, r) => s + r.items.length, 0),
+)
+
+/** 四区域合计占总资产%（用于浮层提示：资产与负债分列两侧，故合计大于 100%） */
+const ovPieSumPercent = computed(() => {
+  const m = ovPieModel.value
+  if (!m || !m.totalValue) return null
+  const sum = m.regions.reduce((s, r) => s + r.value, 0)
+  return (sum / m.totalValue) * 100
+})
+
+/** 打开资产负债表「总体构成」扇形图（四大区域 + 全部明细，占比均为「占总资产%」） */
+async function openOverallPie() {
+  if (!ovPieModel.value) return
+  ovPieOpen.value = true
+  await nextTick()
+  renderOverallPie()
+}
+
+/** 关闭总体构成扇形图浮层 */
+function closeOverallPie() {
+  ovPieOpen.value = false
+  ovPieInst?.dispose()
+  ovPieInst = null
+}
+
+/**
+ * 渲染总体构成扇形图：内环 = 四大区域，外环 = 各区域全部明细；
+ * 两者都以「占总资产%」标注（资产与负债分列报表两侧，故合计大于 100%）。
+ */
+function renderOverallPie() {
+  const el = ovPieEl.value
+  const model = ovPieModel.value
+  if (!el || !model) return
+  ovPieInst?.dispose()
+  ovPieInst = null
+  const regions = model.regions
+  // 内环：四大区域
+  const innerData = regions.map((r) => ({ name: r.name, value: r.value, percent: r.percent, itemStyle: { color: r.color } }))
+  // 外环：各区域全部明细（区域自身没有下级明细时用区域占位，保证内外环角度对齐）
+  const outerData = []
+  for (const r of regions) {
+    const list = r.items.length
+      ? r.items
+      : [{ name: r.name, value: r.value, percent: r.percent, color: r.color }]
+    for (const it of list) {
+      outerData.push({ name: it.name, value: it.value, percent: it.percent, itemStyle: { color: it.color } })
+    }
+  }
+  const center = ['38%', '52%']
+  ovPieInst = echarts.init(el, isDark.value ? 'dark' : null)
+  ovPieInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      // 挂到 body，保证悬浮说明不被面板裁剪
+      appendToBody: true,
+      formatter: (p) => `${p.name}<br/>${fmtAmount(p.value)}<br/>占总资产 ${fmtAmount(p.data?.percent)}%`,
+    },
+    series: [
+      {
+        // 内环：四大区域（占比 = 该区域 / 资产总计）
+        type: 'pie',
+        radius: ['20%', '42%'],
+        center,
+        sort: false, // 保持与「资产/负债」顺序一致，外环才能与之对齐
+        data: innerData,
+        itemStyle: { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.45)' },
+        label: {
+          show: true,
+          fontSize: 12,
+          formatter: (p) => `${shortItemName(p.name, 8)}\n${fmtAmount(p.data?.percent)}%`,
+        },
+        labelLine: { length: 8, length2: 8 },
+      },
+      {
+        // 外环：各区域全部明细（同样按「占总资产%」）
+        type: 'pie',
+        radius: ['46%', '70%'],
+        center,
+        sort: false,
+        data: outerData,
+        itemStyle: { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.45)' },
+        label: {
+          show: true,
+          fontSize: 10,
+          // 明细较多时只标注占比 ≥2% 的扇区，避免标签糊在一起（tooltip 与右侧列表可看全部）
+          formatter: (p) => (numOrNull(p.data?.percent) >= 2 ? `${shortItemName(p.name, 8)} ${fmtAmount(p.data.percent)}%` : ''),
+        },
+        labelLine: { show: true, length: 6, length2: 6 },
+      },
+    ],
+  })
+  // 点击扇区（区域 / 明细）→ 该科目「占总资产%」的历史走势图
+  ovPieInst.on('click', (p) => {
+    if (p?.name) openOverallItemTrend({ name: p.name })
+  })
+  ovPieInst.resize()
+}
+
+/** 点击总体构成里的区域 / 明细 → 打开该科目「占总资产%」走势图（蓝柱 + 直接差值折线；点蓝柱可对比同行业） */
+async function openOverallItemTrend(item) {
+  const model = ovPieModel.value
+  const name = item?.name
+  if (!model || !name) return
+  ovPieResume.value = true
+  closeOverallPie()
+  await openTrend({ itemName: name }, { lineMode: 'diff', ratioBase: model.totalName })
+}
 
 /** 重置对比勾选（默认全部选中） */
 function syncPeerChecks() {
@@ -1427,6 +1607,7 @@ watch(isDark, () => {
     })
   }
   if (bsPieOpen.value) nextTick(renderBalancePie)
+  if (ovPieOpen.value) nextTick(renderOverallPie)
 })
 
 onMounted(() => {
@@ -1642,6 +1823,13 @@ onMounted(() => {
                 <el-option v-for="r in reportOptions" :key="r.id" :label="r.label" :value="r.id" />
               </el-select>
             </div>
+            <button
+              v-if="readerTab === 'balance'"
+              type="button"
+              class="ovPieEntryBtn"
+              title="以「资产总计」为分母，查看流动资产 / 非流动资产 / 流动负债 / 非流动负债 四大区域及全部明细占总资产的百分比扇形图（点击可看走势图与同行业对比）"
+              @click="openOverallPie"
+            >📊 总体构成（占总资产%）</button>
             <div class="readerTabs">
               <button
                 v-for="t in READER_TABS"
@@ -1807,6 +1995,70 @@ onMounted(() => {
     </transition>
   </teleport>
 
+  <!-- 资产负债表「总体构成」扇形图浮层：内环=四大区域、外环=各区域全部明细，占比一律「占总资产%」 -->
+  <teleport to="body">
+    <transition name="readerFade">
+      <div v-if="ovPieOpen" class="peerPieZoomOverlay bsPieOverlay" @click.self="closeOverallPie">
+        <div class="peerPieZoomPanel bsPiePanel">
+          <div class="peerPieZoomHead">
+            <div class="peerPieZoomTitle">
+              📊 总体构成 · 占总资产%
+              <span class="peerPieZoomSub">
+                {{ currentCompany?.companyName || '' }} · {{ currentReportLabel || '' }}
+                · 明细 {{ ovPieItemCount }} 项 · {{ ovPieModel?.totalName }} {{ fmtAmount(ovPieModel?.totalValue) }}
+              </span>
+            </div>
+            <div class="bsPieTools">
+              <button type="button" class="readerClose" @click="closeOverallPie">✕ 关闭</button>
+            </div>
+          </div>
+
+          <div class="bsPieToolbar">
+            <span class="bsPieCrumb">
+              <a class="bsPieCrumbLink current">四大区域及其全部明细，占比 = 各项金额 ÷ {{ ovPieModel?.totalName || '资产总计' }}</a>
+            </span>
+          </div>
+
+          <div class="bsPieBody">
+            <div class="bsPieChartWrap">
+              <div ref="ovPieEl" class="bsPieChart"></div>
+            </div>
+            <div class="bsPieList">
+              <div class="bsPieListTitle">四大区域及全部明细（占总资产%，点击查看走势图）</div>
+              <template v-for="r in ovPieModel?.regions || []" :key="r.id">
+                <div
+                  class="ovPieGroupHead"
+                  title="点击查看该区域历史走势图（占总资产%）"
+                  @click="openOverallItemTrend(r)"
+                >
+                  <span class="bsPieDot" :style="{ background: r.color }"></span>
+                  <span class="bsPieRowName">{{ r.name }}</span>
+                  <span class="ovPieGroupPct">{{ fmtAmount(r.percent) }}%</span>
+                </div>
+                <div
+                  v-for="it in r.items"
+                  :key="it.id"
+                  class="bsPieRow"
+                  title="点击查看该科目历史走势图（占总资产%）"
+                  @click="openOverallItemTrend(it)"
+                >
+                  <span class="bsPieDot" :style="{ background: it.color }"></span>
+                  <span class="bsPieRowName" :title="it.name">{{ it.name }}</span>
+                  <span class="bsPieRowVal">{{ fmtAmount(it.value) }}</span>
+                  <span class="bsPieRowPct">{{ fmtAmount(it.percent) }}%</span>
+                </div>
+                <div v-if="!r.items.length" class="bsPieListEmpty">该报表未披露下级明细</div>
+              </template>
+              <div v-if="ovPieSumPercent !== null" class="bsPieNote">
+                ⚠ 四大区域合计占总资产 {{ fmtAmount(ovPieSumPercent) }}%（资产与负债分列报表两侧，故合计大于 100%）
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </teleport>
+
   <!-- 指标走势图：阅读器财务指标 tab 点击“本期值”弹出 -->
   <teleport to="body">
     <transition name="readerFade">
@@ -1827,7 +2079,7 @@ onMounted(() => {
                   {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
                   <span class="readerStat">
                     {{ trendGroup === 'year' ? '年度展示' : '季度展示' }} · 共 {{ trendGroupPoints.length }} 期
-                    <template v-if="trendValueMode === 'ratio'"> · 按占比%（该科目占合计项）展示</template>
+                    <template v-if="trendValueMode === 'ratio'"> · 按占比%（该科目占 {{ trendRatioBase }}）展示</template>
                     <template v-if="trendMeta?.kind"> · 点击蓝柱可对比同行业</template>
                   </span>
                 </template>
@@ -2353,6 +2605,34 @@ onMounted(() => {
 .bsPieListEmpty { font-size: 12px; color: var(--text-muted, #909399); }
 .bsPieNote { margin-top: 6px; font-size: 12px; color: #e6a23c; }
 
+/* —— 资产负债表「总体构成」扇形图：浮层入口按钮 + 区域分组列表 —— */
+.ovPieEntryBtn {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(64, 158, 255, 0.5);
+  background: rgba(64, 158, 255, 0.1);
+  color: var(--primary-color, #409eff);
+  cursor: pointer;
+}
+.ovPieEntryBtn:hover { background: rgba(64, 158, 255, 0.2); }
+.ovPieGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 6px;
+  margin-top: 4px;
+  border-radius: 6px;
+  background: rgba(230, 162, 60, 0.1);
+  cursor: pointer;
+}
+.ovPieGroupHead:hover { background: rgba(230, 162, 60, 0.2); }
+.ovPieGroupPct { flex-shrink: 0; color: #e6a23c; font-variant-numeric: tabular-nums; }
+
 .readerFade-enter-active, .readerFade-leave-active { transition: opacity 0.22s ease; }
 .readerFade-enter-from, .readerFade-leave-to { opacity: 0; }
 </style>
@@ -2454,6 +2734,13 @@ html.dark .bsPieCrumb { color: #b6bdc9; }
 html.dark .bsPieCrumbLink { color: #79bbff; }
 html.dark .bsPieCrumbLink.current { color: #e5eaf3; }
 html.dark .bsPieRow { background: rgba(64, 158, 255, 0.12); }
+html.dark .ovPieEntryBtn {
+  border-color: rgba(64, 158, 255, 0.55);
+  background: rgba(64, 158, 255, 0.16);
+  color: #79bbff;
+}
+html.dark .ovPieGroupHead { background: rgba(230, 162, 60, 0.16); }
+html.dark .ovPieGroupPct { color: #f3c26b; }
 html.dark .bsPieRow:hover { background: rgba(64, 158, 255, 0.22); }
 html.dark .bsPieRowPct { color: #b6bdc9; }
 html.dark .bsPieList { border-left-color: rgba(255, 255, 255, 0.12); }
