@@ -502,6 +502,50 @@ function closeTrend() {
   }
 }
 
+// ===== 同行业对比 → 点击其他企业柱形图进入其财报阅读器 =====
+
+/** 同行业对比柱状图中点击某家企业的柱子 → 进入该企业 */
+function onPeerBarClick(params) {
+  if (params?.componentType !== 'series' || params?.seriesType !== 'bar') return
+  const company = peerPoints.value[params.dataIndex]
+  if (company) openPeerCompanyReader(company)
+}
+
+/**
+ * 从同行业横向对比切入其他企业的财报阅读器：
+ * 加载该企业的公司信息 / 财报列表 / 三表数据，并在阅读器里打开（保持当前报表 tab，样式与「全屏阅读」完全一致）。
+ */
+async function openPeerCompanyReader(peer) {
+  const companyId = peer?.companyId
+  if (!companyId) return
+  const targetTab = readerTab.value || activeTab.value || 'income'
+  // 切换到其他企业后，不再回到原公司的构成占比 / 总体构成浮层
+  bsPieResumeIds.value = null
+  ovPieResume.value = false
+  closeTrend()
+  statementError.value = ''
+  reportsLoading.value = true
+  try {
+    const res = await fetchCompanyDetail(companyId)
+    currentCompany.value = res?.company || {
+      id: companyId,
+      companyName: peer?.companyName || peer?.shortName || peer?.companyCode || '',
+      companyCode: peer?.companyCode || '',
+      shortName: peer?.shortName || '',
+      industry: peer?.industry || '',
+    }
+    reports.value = res?.reports || []
+    currentReportId.value = reports.value.length ? reports.value[0].id : null
+    if (currentReportId.value) await loadStatement()
+    readerTab.value = targetTab
+    readerOpen.value = true
+  } catch (e) {
+    statementError.value = `加载企业财报失败：${e?.message || e}`
+  } finally {
+    reportsLoading.value = false
+  }
+}
+
 // ===== 同行业对比（点击走势图中的蓝色柱子触发）=====
 
 /** 公司唯一键（用于对比图的公司勾选） */
@@ -1569,6 +1613,8 @@ function renderTrendChart() {
     if (!peerPoints.value.length) return
     trendChartInst = echarts.init(el, isDark.value ? 'dark' : null)
     trendChartInst.setOption(buildPeerOption(), true)
+    // 点击某家企业的柱子 → 进入该企业的财务报表阅读器
+    trendChartInst.on('click', onPeerBarClick)
     trendChartInst.resize()
     return
   }
@@ -1712,7 +1758,7 @@ onMounted(() => {
 
       <div v-if="reports.length" class="sectionTitle">
         各表明细（三表 UNION ALL + 财务指标）
-        <el-button size="small" text type="primary" @click="openReader(activeTab)">⛶ 全屏阅读</el-button>
+        <button type="button" class="fullscreenReadBtn" @click="openReader(activeTab)">⛶ 全屏阅读</button>
       </div>
       <el-tabs v-if="reports.length" v-model="activeTab">
         <el-tab-pane :label="`利润表 (${income.length})`" name="income" />
@@ -1727,7 +1773,7 @@ onMounted(() => {
         :data="activeRows"
         size="small"
         border
-        max-height="1550"
+        max-height="3100"
         style="width: 100%"
       >
         <el-table-column
@@ -2073,7 +2119,7 @@ onMounted(() => {
               <div class="readerSub">
                 <template v-if="trendMode === 'peer'">
                   {{ peerMeta?.industry || '全部行业' }} · {{ peerMeta?.fiscalYear }}{{ peerMeta?.fiscalPeriod }}
-                  · 共 {{ peerPoints.length }} 家公司（橙色为本公司）
+                  · 共 {{ peerPoints.length }} 家公司（橙色为本公司，点击其他企业柱子可进入其财报阅读器）
                 </template>
                 <template v-else>
                   {{ currentCompany?.companyName || '' }} · {{ trendMeta?.sub || '' }}
@@ -2251,6 +2297,35 @@ onMounted(() => {
   font-size: 13px;
   padding: 4px 0 8px;
   color: var(--primary-color, #409eff);
+}
+
+/* —— 「全屏阅读」按钮：加大字号、加粗、醒目蓝底 —— */
+.fullscreenReadBtn {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  vertical-align: middle;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  padding: 9px 22px;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, #409eff, #2b7ce0);
+  box-shadow: 0 2px 10px rgba(64, 158, 255, 0.45);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+.fullscreenReadBtn:hover {
+  background: linear-gradient(135deg, #66b1ff, #409eff);
+  box-shadow: 0 4px 14px rgba(64, 158, 255, 0.6);
+  transform: translateY(-1px);
+}
+html.dark .fullscreenReadBtn {
+  background: linear-gradient(135deg, #5aa9ff, #2b7ce0);
+  box-shadow: 0 2px 10px rgba(64, 158, 255, 0.35);
 }
 
 /* —— 阅读器：近全屏半透明浮层（背景可透视）—— */
